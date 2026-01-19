@@ -1,0 +1,728 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Download, Wand2, Trash2 } from 'lucide-react';
+
+const CANVAS_WIDTH = 21;
+const CANVAS_HEIGHT = 33;
+const TILE_SIZE = 16;
+
+// Terrain types and their gameplay properties:
+// WALL (🧱): Blocks movement AND shooting - solid cover
+// WATER (🌊): Blocks movement but NOT shooting - can shoot through
+// GRASS (🥬): Blocks neither - players can hide/walk/shoot through
+// EMPTY: Open space - no restrictions
+
+const TERRAIN_TYPES = {
+  WALL: '#A0522D',
+  WATER: '#5DADE2',
+  GRASS: '#2ECC71',
+  EMPTY: null
+};
+
+const MapGenerator = () => {
+  const [tiles, setTiles] = useState(() => 
+    Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null))
+  );
+  const [selectedTool, setSelectedTool] = useState(TERRAIN_TYPES.WALL);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [toolbarOpen, setToolbarOpen] = useState(true);
+  const [wallDensity, setWallDensity] = useState(15);
+  const [waterDensity, setWaterDensity] = useState(10);
+  const [grassDensity, setGrassDensity] = useState(15);
+  const [mirrorVertical, setMirrorVertical] = useState(false);
+  const [mirrorHorizontal, setMirrorHorizontal] = useState(false);
+  const [mirrorDiagonal, setMirrorDiagonal] = useState(false);
+  const canvasRef = useRef(null);
+
+  const handleTileClick = (row, col) => {
+    const newTiles = [...tiles.map(r => [...r])];
+    newTiles[row][col] = selectedTool;
+    
+    const centerRow = Math.floor(CANVAS_HEIGHT / 2);
+    const centerCol = Math.floor(CANVAS_WIDTH / 2);
+    
+    if (mirrorVertical) {
+      const mirrorCol = CANVAS_WIDTH - 1 - col;
+      newTiles[row][mirrorCol] = selectedTool;
+    }
+    if (mirrorHorizontal) {
+      const mirrorRow = CANVAS_HEIGHT - 1 - row;
+      newTiles[mirrorRow][col] = selectedTool;
+    }
+    if (mirrorDiagonal) {
+      const offsetRow = row - centerRow;
+      const offsetCol = col - centerCol;
+      const mirrorRow = centerRow - offsetRow;
+      const mirrorCol = centerCol - offsetCol;
+      if (mirrorRow >= 0 && mirrorRow < CANVAS_HEIGHT && mirrorCol >= 0 && mirrorCol < CANVAS_WIDTH) {
+        newTiles[mirrorRow][mirrorCol] = selectedTool;
+      }
+    }
+    if (mirrorVertical && mirrorHorizontal) {
+      const mirrorRow = CANVAS_HEIGHT - 1 - row;
+      const mirrorCol = CANVAS_WIDTH - 1 - col;
+      newTiles[mirrorRow][mirrorCol] = selectedTool;
+    }
+    
+    setTiles(newTiles);
+  };
+
+  const handleMouseDown = (row, col) => {
+    setIsDrawing(true);
+    handleTileClick(row, col);
+  };
+
+  const handleMouseEnter = (row, col) => {
+    if (isDrawing) {
+      handleTileClick(row, col);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDrawing(false);
+  };
+
+  useEffect(() => {
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => document.removeEventListener('mouseup', handleMouseUp);
+  }, []);
+
+  const generateRandomMap = () => {
+    const newTiles = Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null));
+    
+    const isValid = (row, col) => row >= 0 && row < CANVAS_HEIGHT && col >= 0 && col < CANVAS_WIDTH;
+    
+    const getNeighbors = (row, col) => {
+      return [
+        [row-1, col], [row+1, col], [row, col-1], [row, col+1]
+      ].filter(([r, c]) => isValid(r, c));
+    };
+    
+    const centerRow = Math.floor(CANVAS_HEIGHT / 2);
+    const centerCol = Math.floor(CANVAS_WIDTH / 2);
+    
+    const totalTiles = CANVAS_WIDTH * CANVAS_HEIGHT;
+    const activeTerrains = [];
+    if (wallDensity > 0) activeTerrains.push({ type: TERRAIN_TYPES.WALL, density: wallDensity, spreadChance: 0.50, fillGaps: true });
+    if (waterDensity > 0) activeTerrains.push({ type: TERRAIN_TYPES.WATER, density: waterDensity, spreadChance: 0.55, fillGaps: true });
+    if (grassDensity > 0) activeTerrains.push({ type: TERRAIN_TYPES.GRASS, density: grassDensity, spreadChance: 0.50, fillGaps: true });
+    
+    activeTerrains.forEach(({ type, density, spreadChance, fillGaps }) => {
+      const targetCount = Math.floor((density / 100) * totalTiles);
+      let placedCount = 0;
+      const blobCount = Math.max(5, Math.floor(targetCount / 5) + Math.floor(Math.random() * 3)); // More blobs, smaller sizes
+      
+      for (let i = 0; i < blobCount && placedCount < targetCount; i++) {
+        let startRow = Math.floor(Math.random() * CANVAS_HEIGHT);
+        let startCol = Math.floor(Math.random() * CANVAS_WIDTH);
+        
+        if (mirrorVertical && !mirrorHorizontal && !mirrorDiagonal) {
+          startCol = Math.floor(Math.random() * (CANVAS_WIDTH / 2));
+        }
+        if (mirrorHorizontal && !mirrorVertical && !mirrorDiagonal) {
+          startRow = Math.floor(Math.random() * (CANVAS_HEIGHT / 2));
+        }
+        if (mirrorDiagonal && !mirrorVertical && !mirrorHorizontal) {
+          startRow = Math.floor(Math.random() * CANVAS_HEIGHT);
+          startCol = Math.floor(Math.random() * CANVAS_WIDTH);
+        }
+        if (mirrorVertical && mirrorHorizontal) {
+          startRow = Math.floor(Math.random() * (CANVAS_HEIGHT / 2));
+          startCol = Math.floor(Math.random() * (CANVAS_WIDTH / 2));
+        }
+        
+        const queue = [[startRow, startCol]];
+        const visited = new Set();
+        const baseBlobSize = Math.floor(targetCount / blobCount);
+        const variableBlobSize = baseBlobSize + Math.floor(Math.random() * baseBlobSize * 0.3);
+        const blobSize = Math.min(variableBlobSize, targetCount - placedCount, 15); // Reduced max from 25 to 15
+        let currentBlobSize = 0;
+        
+        while (queue.length > 0 && currentBlobSize < blobSize && placedCount < targetCount) {
+          const [row, col] = queue.shift();
+          const key = `${row},${col}`;
+          
+          if (!isValid(row, col) || visited.has(key) || newTiles[row][col] !== null) continue;
+          
+          visited.add(key);
+          newTiles[row][col] = type;
+          placedCount++;
+          currentBlobSize++;
+          
+          if (mirrorVertical) {
+            const mirrorCol = CANVAS_WIDTH - 1 - col;
+            if (isValid(row, mirrorCol) && newTiles[row][mirrorCol] === null) {
+              newTiles[row][mirrorCol] = type;
+              placedCount++;
+              visited.add(`${row},${mirrorCol}`);
+            }
+          }
+          if (mirrorHorizontal) {
+            const mirrorRow = CANVAS_HEIGHT - 1 - row;
+            if (isValid(mirrorRow, col) && newTiles[mirrorRow][col] === null) {
+              newTiles[mirrorRow][col] = type;
+              placedCount++;
+              visited.add(`${mirrorRow},${col}`);
+            }
+          }
+          if (mirrorDiagonal) {
+            const offsetRow = row - centerRow;
+            const offsetCol = col - centerCol;
+            const mirrorRow = centerRow - offsetRow;
+            const mirrorCol = centerCol - offsetCol;
+            if (isValid(mirrorRow, mirrorCol) && newTiles[mirrorRow][mirrorCol] === null) {
+              newTiles[mirrorRow][mirrorCol] = type;
+              placedCount++;
+              visited.add(`${mirrorRow},${mirrorCol}`);
+            }
+          }
+          if (mirrorVertical && mirrorHorizontal) {
+            const mirrorRow = CANVAS_HEIGHT - 1 - row;
+            const mirrorCol = CANVAS_WIDTH - 1 - col;
+            if (isValid(mirrorRow, mirrorCol) && newTiles[mirrorRow][mirrorCol] === null) {
+              newTiles[mirrorRow][mirrorCol] = type;
+              placedCount++;
+              visited.add(`${mirrorRow},${mirrorCol}`);
+            }
+          }
+          
+          const neighbors = getNeighbors(row, col);
+          neighbors.forEach(([r, c]) => {
+            if (Math.random() < spreadChance && newTiles[r][c] === null && !visited.has(`${r},${c}`)) {
+              queue.push([r, c]);
+            }
+          });
+          
+          if (queue.length > 6) {
+            queue.splice(Math.floor(queue.length * 0.6));
+          }
+        }
+      }
+      
+      if (fillGaps) {
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            if (newTiles[row][col] === null) {
+              const neighbors = getNeighbors(row, col);
+              const sameTypeNeighbors = neighbors.filter(([r, c]) => newTiles[r][c] === type);
+              if (sameTypeNeighbors.length >= 3) {
+                newTiles[row][col] = type;
+              }
+            }
+          }
+        }
+        
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            if (newTiles[row][col] === null) {
+              const neighbors = getNeighbors(row, col);
+              const sameTypeNeighbors = neighbors.filter(([r, c]) => newTiles[r][c] === type);
+              const isEdge = row === 0 || row === CANVAS_HEIGHT - 1 || col === 0 || col === CANVAS_WIDTH - 1;
+              if (isEdge && sameTypeNeighbors.length >= 2) {
+                newTiles[row][col] = type;
+              }
+            }
+          }
+        }
+        
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            if (newTiles[row][col] === type) {
+              const neighbors = getNeighbors(row, col);
+              const sameTypeNeighbors = neighbors.filter(([r, c]) => newTiles[r][c] === type);
+              if (sameTypeNeighbors.length === 0) {
+                newTiles[row][col] = null;
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    for (let pass = 0; pass < 3; pass++) {
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          if (newTiles[row][col] === null) {
+            const neighbors = getNeighbors(row, col);
+            
+            const blockingNeighbors = neighbors.filter(([r, c]) => {
+              const tile = newTiles[r][c];
+              return tile === TERRAIN_TYPES.WALL || tile === TERRAIN_TYPES.WATER;
+            });
+            
+            if (blockingNeighbors.length >= 3) {
+              const wallCount = blockingNeighbors.filter(([r, c]) => newTiles[r][c] === TERRAIN_TYPES.WALL).length;
+              const waterCount = blockingNeighbors.filter(([r, c]) => newTiles[r][c] === TERRAIN_TYPES.WATER).length;
+              newTiles[row][col] = wallCount >= waterCount ? TERRAIN_TYPES.WALL : TERRAIN_TYPES.WATER;
+            }
+            
+            const top = row > 0 ? newTiles[row - 1][col] : null;
+            const bottom = row < CANVAS_HEIGHT - 1 ? newTiles[row + 1][col] : null;
+            const left = col > 0 ? newTiles[row][col - 1] : null;
+            const right = col < CANVAS_WIDTH - 1 ? newTiles[row][col + 1] : null;
+            
+            const topBlocking = top === TERRAIN_TYPES.WALL || top === TERRAIN_TYPES.WATER;
+            const bottomBlocking = bottom === TERRAIN_TYPES.WALL || bottom === TERRAIN_TYPES.WATER;
+            const leftBlocking = left === TERRAIN_TYPES.WALL || left === TERRAIN_TYPES.WATER;
+            const rightBlocking = right === TERRAIN_TYPES.WALL || right === TERRAIN_TYPES.WATER;
+            
+            if (topBlocking && bottomBlocking) {
+              newTiles[row][col] = top || bottom;
+            }
+            
+            if (leftBlocking && rightBlocking) {
+              newTiles[row][col] = left || right;
+            }
+          }
+        }
+      }
+    }
+    
+    for (let pass = 0; pass < 3; pass++) {
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          if (newTiles[row][col] === TERRAIN_TYPES.WATER) {
+            const neighbors = getNeighbors(row, col);
+            const waterNeighbors = neighbors.filter(([r, c]) => newTiles[r][c] === TERRAIN_TYPES.WATER);
+            
+            const top = row > 0 ? newTiles[row - 1][col] : null;
+            const bottom = row < CANVAS_HEIGHT - 1 ? newTiles[row + 1][col] : null;
+            const left = col > 0 ? newTiles[row][col - 1] : null;
+            const right = col < CANVAS_WIDTH - 1 ? newTiles[row][col + 1] : null;
+            
+            const hasWaterAbove = top === TERRAIN_TYPES.WATER;
+            const hasWaterBelow = bottom === TERRAIN_TYPES.WATER;
+            const hasWaterLeft = left === TERRAIN_TYPES.WATER;
+            const hasWaterRight = right === TERRAIN_TYPES.WATER;
+            
+            const verticalWater = (hasWaterAbove ? 1 : 0) + (hasWaterBelow ? 1 : 0);
+            const horizontalWater = (hasWaterLeft ? 1 : 0) + (hasWaterRight ? 1 : 0);
+            
+            const isThinVertical = verticalWater > 0 && horizontalWater === 0;
+            const isThinHorizontal = horizontalWater > 0 && verticalWater === 0;
+            const isIsolated = waterNeighbors.length <= 1;
+            
+            if (isThinVertical || isThinHorizontal || isIsolated) {
+              newTiles[row][col] = null;
+            }
+          }
+        }
+      }
+    }
+    
+    const edgeMargin = 2;
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        const isNearEdge = row < edgeMargin || row >= CANVAS_HEIGHT - edgeMargin || 
+                          col < edgeMargin || col >= CANVAS_WIDTH - edgeMargin;
+        
+        if (isNearEdge && newTiles[row][col] !== null) {
+          const neighbors = getNeighbors(row, col);
+          const sameTypeNeighbors = neighbors.filter(([r, c]) => newTiles[r][c] === newTiles[row][col]);
+          
+          const isCorner = (row < edgeMargin || row >= CANVAS_HEIGHT - edgeMargin) && 
+                          (col < edgeMargin || col >= CANVAS_WIDTH - edgeMargin);
+          
+          if (isCorner && sameTypeNeighbors.length >= 3) {
+            if (Math.random() < 0.5) {
+              newTiles[row][col] = null;
+            }
+          }
+        }
+      }
+    }
+    
+    if (mirrorDiagonal) {
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          const offsetRow = row - centerRow;
+          const offsetCol = col - centerCol;
+          const mirrorRow = centerRow - offsetRow;
+          const mirrorCol = centerCol - offsetCol;
+          
+          if (isValid(mirrorRow, mirrorCol)) {
+            if (newTiles[row][col] !== null && newTiles[mirrorRow][mirrorCol] === null) {
+              newTiles[mirrorRow][mirrorCol] = newTiles[row][col];
+            } else if (newTiles[row][col] === null && newTiles[mirrorRow][mirrorCol] !== null) {
+              newTiles[row][col] = newTiles[mirrorRow][mirrorCol];
+            }
+          }
+        }
+      }
+    }
+    
+    // FINAL POST-GENERATION OTG CLEANUP - Multiple comprehensive passes
+    // This catches ALL single-tile gaps between any terrain types
+    for (let pass = 0; pass < 4; pass++) {
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          if (newTiles[row][col] === null) {
+            const neighbors = getNeighbors(row, col);
+            
+            // Get all non-null neighbors
+            const filledNeighbors = neighbors.filter(([r, c]) => newTiles[r][c] !== null);
+            
+            // If surrounded by 3+ filled tiles, fill with most common type
+            if (filledNeighbors.length >= 3) {
+              const terrainCounts = {};
+              filledNeighbors.forEach(([r, c]) => {
+                const terrain = newTiles[r][c];
+                terrainCounts[terrain] = (terrainCounts[terrain] || 0) + 1;
+              });
+              
+              // Find most common terrain
+              let mostCommon = null;
+              let maxCount = 0;
+              Object.entries(terrainCounts).forEach(([terrain, count]) => {
+                if (count > maxCount) {
+                  maxCount = count;
+                  mostCommon = terrain;
+                }
+              });
+              
+              newTiles[row][col] = mostCommon;
+            }
+            
+            // Also check for tight corridors between any filled tiles
+            const top = row > 0 ? newTiles[row - 1][col] : null;
+            const bottom = row < CANVAS_HEIGHT - 1 ? newTiles[row + 1][col] : null;
+            const left = col > 0 ? newTiles[row][col - 1] : null;
+            const right = col < CANVAS_WIDTH - 1 ? newTiles[row][col + 1] : null;
+            
+            // Vertical corridor
+            if (top !== null && bottom !== null) {
+              newTiles[row][col] = top; // Fill with top tile type
+            }
+            
+            // Horizontal corridor
+            if (left !== null && right !== null) {
+              newTiles[row][col] = left; // Fill with left tile type
+            }
+            
+            // Edge cases - if at edge with 2+ neighbors
+            const isEdge = row === 0 || row === CANVAS_HEIGHT - 1 || col === 0 || col === CANVAS_WIDTH - 1;
+            if (isEdge && filledNeighbors.length >= 2) {
+              const firstNeighbor = filledNeighbors[0];
+              newTiles[row][col] = newTiles[firstNeighbor[0]][firstNeighbor[1]];
+            }
+          }
+        }
+      }
+    }
+    
+    setTiles(newTiles);
+  };
+
+  const clearCanvas = () => {
+    setTiles(Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null)));
+  };
+
+  const downloadMap = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = CANVAS_WIDTH * TILE_SIZE;
+    canvas.height = CANVAS_HEIGHT * TILE_SIZE;
+    const ctx = canvas.getContext('2d');
+    
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        const isEvenRow = row % 2 === 0;
+        const isEvenCol = col % 2 === 0;
+        const isLightSquare = (isEvenRow && isEvenCol) || (!isEvenRow && !isEvenCol);
+        ctx.fillStyle = isLightSquare ? '#FFE4B3' : '#FFDAA3';
+        ctx.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        
+        if (tiles[row][col]) {
+          ctx.fillStyle = tiles[row][col];
+          ctx.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+      }
+    }
+    
+    canvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'blink-map.png';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  };
+
+  const countTiles = () => {
+    let wallCount = 0, waterCount = 0, grassCount = 0, emptyCount = 0;
+    tiles.forEach(row => {
+      row.forEach(tile => {
+        if (tile === TERRAIN_TYPES.WALL) wallCount++;
+        else if (tile === TERRAIN_TYPES.WATER) waterCount++;
+        else if (tile === TERRAIN_TYPES.GRASS) grassCount++;
+        else emptyCount++;
+      });
+    });
+    return { wallCount, waterCount, grassCount, emptyCount };
+  };
+
+  const tileCounts = countTiles();
+
+  return (
+    <div className="min-h-screen relative overflow-hidden" style={{
+      background: 'linear-gradient(180deg, #0a1128 0%, #1a2332 50%, #2d1b4e 100%)'
+    }}>
+      <div className="absolute inset-0 pointer-events-none">
+        {[...Array(100)].map((_, i) => (
+          <div
+            key={`star-${i}`}
+            className="absolute bg-white rounded-full"
+            style={{
+              width: Math.random() * 2 + 1 + 'px',
+              height: Math.random() * 2 + 1 + 'px',
+              top: Math.random() * 100 + '%',
+              left: Math.random() * 100 + '%',
+              opacity: Math.random() * 0.5 + 0.3
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="relative z-10 bg-black bg-opacity-30 border-b border-purple-500 border-opacity-30 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-3xl">💫</span>
+          <h1 className="text-2xl font-bold text-white">Blink</h1>
+        </div>
+      </div>
+
+      <div className="relative z-10 flex items-start justify-center gap-4 p-4 max-w-7xl mx-auto">
+        <div className="flex flex-col items-center gap-4 flex-1">
+          <div 
+            ref={canvasRef}
+            className="inline-block border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
+            style={{
+              background: '#FFE4B3',
+              userSelect: 'none'
+            }}
+          >
+            {tiles.map((row, rowIndex) => (
+              <div key={rowIndex} className="flex">
+                {row.map((tile, colIndex) => {
+                  const isEvenRow = rowIndex % 2 === 0;
+                  const isEvenCol = colIndex % 2 === 0;
+                  const isLightSquare = (isEvenRow && isEvenCol) || (!isEvenRow && !isEvenCol);
+                  
+                  return (
+                    <div
+                      key={`${rowIndex}-${colIndex}`}
+                      onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
+                      onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
+                      onTouchStart={(e) => {
+                        e.preventDefault();
+                        handleMouseDown(rowIndex, colIndex);
+                      }}
+                      className="cursor-pointer touch-none"
+                      style={{
+                        width: TILE_SIZE + 'px',
+                        height: TILE_SIZE + 'px',
+                        backgroundColor: tile || (isLightSquare ? '#FFE4B3' : '#FFDAA3'),
+                        border: '0.5px solid rgba(0,0,0,0.05)'
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-2 w-full max-w-md backdrop-blur-sm">
+            <div className="flex items-center justify-center gap-2">
+              <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.WALL, minWidth: '60px' }}>
+                <span className="text-white text-sm font-bold">{tileCounts.wallCount}</span>
+              </div>
+              <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.WATER, minWidth: '60px' }}>
+                <span className="text-white text-sm font-bold">{tileCounts.waterCount}</span>
+              </div>
+              <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.GRASS, minWidth: '60px' }}>
+                <span className="text-white text-sm font-bold">{tileCounts.grassCount}</span>
+              </div>
+              <div className="flex items-center justify-center px-3 py-2 rounded bg-orange-200" style={{ minWidth: '60px' }}>
+                <span className="text-gray-700 text-sm font-bold">{tileCounts.emptyCount}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg p-4 w-full max-w-md backdrop-blur-sm">
+            <h3 className="text-white text-lg font-semibold mb-4 flex items-center gap-2 justify-center">
+              <Wand2 size={20} />
+              Random Map Generator
+            </h3>
+            
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-white text-sm flex-1">🧱 Walls</span>
+                  <span className="text-white text-sm">{wallDensity}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={wallDensity}
+                  onChange={(e) => setWallDensity(Number(e.target.value))}
+                  className="w-full accent-amber-700"
+                />
+              </div>
+              
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-white text-sm flex-1">🌊 Water</span>
+                  <span className="text-white text-sm">{waterDensity}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={waterDensity}
+                  onChange={(e) => setWaterDensity(Number(e.target.value))}
+                  className="w-full accent-blue-400"
+                />
+              </div>
+              
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-white text-sm flex-1">🥬 Grass</span>
+                  <span className="text-white text-sm">{grassDensity}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={grassDensity}
+                  onChange={(e) => setGrassDensity(Number(e.target.value))}
+                  className="w-full accent-green-500"
+                />
+              </div>
+
+              <button
+                onClick={generateRandomMap}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors mt-4"
+              >
+                <Wand2 size={20} />
+                Generate Map
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="fixed right-0 top-20 z-20 flex items-center">
+          <button
+            onClick={() => setToolbarOpen(!toolbarOpen)}
+            className={`bg-purple-600 hover:bg-purple-700 text-white p-2 rounded-l-lg transition-all ${!toolbarOpen ? 'translate-x-0' : ''}`}
+            style={{
+              position: toolbarOpen ? 'relative' : 'absolute',
+              right: toolbarOpen ? 0 : 0
+            }}
+          >
+            {toolbarOpen ? '→' : '←'}
+          </button>
+          
+          <div className={`bg-black bg-opacity-40 border-l border-t border-b border-purple-400 border-opacity-50 rounded-l-lg p-2 backdrop-blur-sm transition-transform duration-300 ${toolbarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+            <div className="flex flex-col gap-2 items-center">
+              <button
+                onClick={() => setSelectedTool(TERRAIN_TYPES.WALL)}
+                className={`w-10 h-10 rounded-lg border-2 transition-all ${
+                  selectedTool === TERRAIN_TYPES.WALL 
+                    ? 'border-white scale-110 shadow-lg' 
+                    : 'border-transparent hover:border-gray-400'
+                }`}
+                style={{ backgroundColor: TERRAIN_TYPES.WALL }}
+                title="Wall"
+              />
+              <button
+                onClick={() => setSelectedTool(TERRAIN_TYPES.WATER)}
+                className={`w-10 h-10 rounded-lg border-2 transition-all ${
+                  selectedTool === TERRAIN_TYPES.WATER 
+                    ? 'border-white scale-110 shadow-lg' 
+                    : 'border-transparent hover:border-gray-400'
+                }`}
+                style={{ backgroundColor: TERRAIN_TYPES.WATER }}
+                title="Water"
+              />
+              <button
+                onClick={() => setSelectedTool(TERRAIN_TYPES.GRASS)}
+                className={`w-10 h-10 rounded-lg border-2 transition-all ${
+                  selectedTool === TERRAIN_TYPES.GRASS 
+                    ? 'border-white scale-110 shadow-lg' 
+                    : 'border-transparent hover:border-gray-400'
+                }`}
+                style={{ backgroundColor: TERRAIN_TYPES.GRASS }}
+                title="Grass"
+              />
+              <button
+                onClick={() => setSelectedTool(null)}
+                className={`w-10 h-10 rounded-lg border-2 bg-gray-700 hover:bg-gray-600 transition-all flex items-center justify-center text-lg ${
+                  selectedTool === null 
+                    ? 'border-white scale-110 shadow-lg' 
+                    : 'border-transparent'
+                }`}
+                title="Eraser"
+              >
+                🧹
+              </button>
+              
+              <div className="w-full border-t border-purple-400 border-opacity-30 my-1" />
+              
+              <button
+                onClick={() => setMirrorVertical(!mirrorVertical)}
+                className={`w-10 h-10 rounded-lg transition-all flex items-center justify-center text-lg ${
+                  mirrorVertical 
+                    ? 'bg-purple-600 text-white' 
+                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}
+                title="Mirror Vertical"
+              >
+                ↔️
+              </button>
+              <button
+                onClick={() => setMirrorHorizontal(!mirrorHorizontal)}
+                className={`w-10 h-10 rounded-lg transition-all flex items-center justify-center text-lg ${
+                  mirrorHorizontal 
+                    ? 'bg-purple-600 text-white' 
+                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}
+                title="Mirror Horizontal"
+              >
+                ↕️
+              </button>
+              <button
+                onClick={() => setMirrorDiagonal(!mirrorDiagonal)}
+                className={`w-10 h-10 rounded-lg transition-all flex items-center justify-center text-lg ${
+                  mirrorDiagonal 
+                    ? 'bg-purple-600 text-white' 
+                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}
+                title="Mirror Central"
+              >
+                🔄
+              </button>
+              
+              <div className="w-full border-t border-purple-400 border-opacity-30 my-1" />
+              
+              <button
+                onClick={clearCanvas}
+                className="w-10 h-10 rounded-lg bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors"
+                title="Clear All"
+              >
+                <Trash2 size={18} className="text-white" />
+              </button>
+              <button
+                onClick={downloadMap}
+                className="w-10 h-10 rounded-lg bg-green-600 hover:bg-green-700 flex items-center justify-center transition-colors"
+                title="Download PNG"
+              >
+                <Download size={18} className="text-white" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MapGenerator;
