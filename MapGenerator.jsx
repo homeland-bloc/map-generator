@@ -157,6 +157,8 @@ const MapGenerator = () => {
       mirrored.forEach(([r, c]) => {
         if (isValid(r, c)) newTiles[r][c] = type;
       });
+
+      return mirrored;
     };
 
     const centerRow = Math.floor(CANVAS_HEIGHT / 2);
