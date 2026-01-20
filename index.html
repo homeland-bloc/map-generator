@@ -39,10 +39,17 @@
     <!-- Load the MapGenerator component -->
     <script type="text/babel" src="MapGenerator.jsx"></script>
 
-    <!-- Render the app -->
+    <!-- Render the app after component loads -->
     <script type="text/babel">
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<MapGenerator />);
+        (function renderWhenReady() {
+            if (typeof window.MapGenerator !== 'undefined') {
+                const MapGenerator = window.MapGenerator;
+                const root = ReactDOM.createRoot(document.getElementById('root'));
+                root.render(<MapGenerator />);
+            } else {
+                setTimeout(renderWhenReady, 50);
+            }
+        })();
     </script>
 </body>
 </html>
