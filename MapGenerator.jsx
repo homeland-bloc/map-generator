@@ -1047,9 +1047,6 @@ const MapGenerator = () => {
               <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.GRASS, minWidth: '60px' }}>
                 <span className="text-white text-sm font-bold">{tileCounts.grassCount}</span>
               </div>
-              <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.OTG, minWidth: '60px' }}>
-                <span className="text-white text-sm font-bold">{tileCounts.otgCount}</span>
-              </div>
               <div className="flex items-center justify-center px-3 py-2 rounded bg-orange-200" style={{ minWidth: '60px' }}>
                 <span className="text-gray-700 text-sm font-bold">{tileCounts.emptyCount}</span>
               </div>
@@ -1162,16 +1159,6 @@ const MapGenerator = () => {
                 }`}
                 style={{ backgroundColor: TERRAIN_TYPES.GRASS }}
                 title="Grass"
-              />
-              <button
-                onClick={() => setSelectedTool(TERRAIN_TYPES.OTG)}
-                className={`w-10 h-10 rounded-lg border-2 transition-all ${
-                  selectedTool === TERRAIN_TYPES.OTG
-                    ? 'border-white scale-110 shadow-lg'
-                    : 'border-transparent hover:border-gray-400'
-                }`}
-                style={{ backgroundColor: TERRAIN_TYPES.OTG }}
-                title="OTG (Out of Game)"
               />
               <button
                 onClick={() => setSelectedTool(null)}
