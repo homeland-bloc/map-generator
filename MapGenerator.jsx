@@ -90,428 +90,457 @@ const MapGenerator = () => {
   }, []);
 
   const generateRandomMap = () => {
-    console.log('=== STARTING CELLULAR AUTOMATA MAP GENERATION ===');
+    console.log('=== STARTING TEMPLATE-BASED MAP GENERATION ===');
 
     /*
     Map anatomy (21 cols × 33 rows):
-    - Mid strip (rows 11-21, 11 rows): Primary combat zone - needs balanced cover
+    - Mid strip (rows 11-21): Primary combat zone
     - Backside strips (rows 0-10 and 22-32): Retreat/respawn zones
-    - Action zones and backside should have similar cover density (35-45% each)
-    - Imbalanced cover causes spawn camping (too much mid) or passive camping (too much backside)
-    - Structure variety crucial: mix of blocky walls, linear barriers, diagonal trenches
-    - NO structures longer than 9-11 tiles for walls/water, 15 tiles for grass
-    - NO structures thicker than 2-3 tiles for walls/water, 4 tiles for grass
+    - Balance: Both zones should have similar cover density (35-45%)
+
+    Tactical shooter map principles (from reference game analysis):
+    - Maps use DISCRETE STRUCTURES, not organic blobs
+    - Small structures dominate: 1×1, 1×2, 1×3, 2×2 walls are very common
+    - L-shaped walls and clusters create tactical complexity
+    - Large structures are RARE and moderate-sized
+    - Bushes are typically 2 tiles wide (can be 1-tile wide only when attached to walls)
+    - Water is minimal: 1-2 features per map maximum
+    - Structure variety comes from: size range (small to big) AND density range (open areas vs tight chokepoints)
+    - Some areas should be open (4+ tile gaps), some should be tight (2-3 tile chokepoints with packed walls)
+    - NO OTGs allowed anywhere - gaps must be 0 tiles (touching) or 2+ tiles (tactical spacing)
     */
 
-    let tiles = Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null));
+    let placedTiles = Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null));
+    const placedStructures = [];
     const totalTiles = CANVAS_WIDTH * CANVAS_HEIGHT;
 
     // Map zone helpers
     const MID_STRIP_START = 11;
     const MID_STRIP_END = 21;
     const isInMidStrip = (row) => row >= MID_STRIP_START && row <= MID_STRIP_END;
-    const isInBackside = (row) => row < MID_STRIP_START || row > MID_STRIP_END;
-
-    // ===== HELPER FUNCTIONS =====
     const isValid = (row, col) => row >= 0 && row < CANVAS_HEIGHT && col >= 0 && col < CANVAS_WIDTH;
 
-    const getNeighbors8 = (row, col) => {
-      return [
-        [row-1, col], [row+1, col], [row, col-1], [row, col+1],
-        [row-1, col-1], [row-1, col+1], [row+1, col-1], [row+1, col+1]
-      ].filter(([r, c]) => isValid(r, c));
+    // ===== PHASE 1: DEFINE STRUCTURE TEMPLATES =====
+    console.log('\n--- PHASE 1: Structure Templates ---');
+
+    const WALL_TEMPLATES = {
+      // Small (50% probability total)
+      single: { pattern: [[1]], weight: 15 },
+      bar_v2: { pattern: [[1],[1]], weight: 10 },
+      bar_h2: { pattern: [[1,1]], weight: 10 },
+      bar_v3: { pattern: [[1],[1],[1]], weight: 8 },
+      bar_h3: { pattern: [[1,1,1]], weight: 8 },
+      block_2x2: { pattern: [[1,1],[1,1]], weight: 10 },
+      L1: { pattern: [[1,1],[1,0]], weight: 7 },
+      L2: { pattern: [[1,1],[0,1]], weight: 7 },
+      L3: { pattern: [[1,0],[1,1]], weight: 7 },
+      L4: { pattern: [[0,1],[1,1]], weight: 7 },
+      T1: { pattern: [[1,1,1],[0,1,0]], weight: 6 },
+      T2: { pattern: [[1,0],[1,1],[1,0]], weight: 6 },
+      T3: { pattern: [[0,1,0],[1,1,1]], weight: 6 },
+      T4: { pattern: [[0,1],[1,1],[0,1]], weight: 6 },
+
+      // Medium (30% probability total)
+      bar_v4: { pattern: [[1],[1],[1],[1]], weight: 5 },
+      bar_h4: { pattern: [[1,1,1,1]], weight: 5 },
+      bar_v5: { pattern: [[1],[1],[1],[1],[1]], weight: 4 },
+      bar_h5: { pattern: [[1,1,1,1,1]], weight: 4 },
+      block_2x3: { pattern: [[1,1],[1,1],[1,1]], weight: 5 },
+      block_3x2: { pattern: [[1,1,1],[1,1,1]], weight: 5 },
+      L_big1: { pattern: [[1,1,1],[1,0,0]], weight: 4 },
+      L_big2: { pattern: [[1,1,1],[0,0,1]], weight: 4 },
+      L_big3: { pattern: [[1,0,0],[1,1,1]], weight: 4 },
+      L_big4: { pattern: [[0,0,1],[1,1,1]], weight: 4 },
+      U1: { pattern: [[1,0,1],[1,1,1]], weight: 4 },
+      U2: { pattern: [[1,1],[1,0],[1,1]], weight: 4 },
+
+      // Large (20% probability total)
+      bar_v6: { pattern: [[1],[1],[1],[1],[1],[1]], weight: 3 },
+      bar_h6: { pattern: [[1,1,1,1,1,1]], weight: 3 },
+      bar_v7: { pattern: [[1],[1],[1],[1],[1],[1],[1]], weight: 2 },
+      bar_h7: { pattern: [[1,1,1,1,1,1,1]], weight: 2 },
+      block_2x4: { pattern: [[1,1],[1,1],[1,1],[1,1]], weight: 3 },
+      block_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 2 },
+      box_3x3: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 3 },
+      plus: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 2 }
     };
 
-    const getNeighbors4 = (row, col) => {
-      return [
-        [row-1, col], [row+1, col], [row, col-1], [row, col+1]
-      ].filter(([r, c]) => isValid(r, c));
+    const BUSH_TEMPLATES = {
+      // All bushes must be 2+ tiles wide
+      square_2x2: { pattern: [[1,1],[1,1]], weight: 1 },
+      rect_2x3: { pattern: [[1,1],[1,1],[1,1]], weight: 1 },
+      rect_3x2: { pattern: [[1,1,1],[1,1,1]], weight: 1 },
+      rect_2x4: { pattern: [[1,1],[1,1],[1,1],[1,1]], weight: 1 },
+      rect_4x2: { pattern: [[1,1,1,1],[1,1,1,1]], weight: 1 },
+      L_wide1: { pattern: [[1,1],[1,1],[1,1,0,0]], weight: 0.5 },
+      L_wide2: { pattern: [[1,1,0,0],[1,1],[1,1]], weight: 0.5 }
     };
 
-    // Count neighbors of a specific type (or all filled if terrainType is null)
-    const countNeighbors = (tilesArray, row, col, terrainType) => {
-      const neighbors = getNeighbors8(row, col);
-      if (terrainType === null) {
-        // Count ALL filled neighbors
-        return neighbors.filter(([r, c]) => tilesArray[r][c] !== null).length;
+    const WATER_TEMPLATES = {
+      // Minimal water features
+      pool_2x3: { pattern: [[1,1],[1,1],[1,1]], weight: 1 },
+      pool_3x3: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 1 },
+      pool_3x2: { pattern: [[1,1,1],[1,1,1]], weight: 1 },
+      river_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 0.5 }
+    };
+
+    console.log(`  Wall templates: ${Object.keys(WALL_TEMPLATES).length}`);
+    console.log(`  Bush templates: ${Object.keys(BUSH_TEMPLATES).length}`);
+    console.log(`  Water templates: ${Object.keys(WATER_TEMPLATES).length}`);
+
+    // ===== PHASE 2: CALCULATE PLACEMENT TARGETS =====
+    console.log('\n--- PHASE 2: Placement Targets ---');
+
+    // Use better defaults if user hasn't changed them
+    const effectiveWallDensity = wallDensity === 15 ? 25 : wallDensity;
+    const effectiveGrassDensity = grassDensity === 15 ? 20 : grassDensity;
+    const effectiveWaterDensity = waterDensity === 10 ? 8 : waterDensity;
+
+    const targetWalls = Math.floor((effectiveWallDensity / 100) * totalTiles);
+    const targetBushes = Math.floor((effectiveGrassDensity / 100) * totalTiles);
+    const targetWater = Math.min(Math.floor((effectiveWaterDensity / 100) * totalTiles), totalTiles * 0.1); // Cap at 10%
+
+    console.log(`  Target walls: ${targetWalls} tiles (${effectiveWallDensity}%)`);
+    console.log(`  Target bushes: ${targetBushes} tiles (${effectiveGrassDensity}%)`);
+    console.log(`  Target water: ${targetWater} tiles (${effectiveWaterDensity}%)`);
+
+    // ===== PHASE 3: STRATEGIC AREA PLANNING =====
+    console.log('\n--- PHASE 3: Zone Planning ---');
+
+    const zones = [];
+
+    // Create OPEN zones (30% of map area)
+    for (let i = 0; i < 3; i++) {
+      const width = 5 + Math.floor(Math.random() * 4); // 5-8
+      const height = 7 + Math.floor(Math.random() * 4); // 7-10
+      const startRow = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
+      const startCol = Math.floor(Math.random() * (CANVAS_WIDTH - width));
+
+      zones.push({
+        type: 'OPEN',
+        startRow, endRow: startRow + height - 1,
+        startCol, endCol: startCol + width - 1,
+        targetCoverage: 0.15 + Math.random() * 0.1, // 15-25%
+        minGap: 4
+      });
+    }
+
+    // Create TIGHT zones (20% of map area)
+    for (let i = 0; i < 2; i++) {
+      const width = 4 + Math.floor(Math.random() * 3); // 4-6
+      const height = 5 + Math.floor(Math.random() * 4); // 5-8
+      const startRow = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
+      const startCol = Math.floor(Math.random() * (CANVAS_WIDTH - width));
+
+      zones.push({
+        type: 'TIGHT',
+        startRow, endRow: startRow + height - 1,
+        startCol, endCol: startCol + width - 1,
+        targetCoverage: 0.55 + Math.random() * 0.15, // 55-70%
+        minGap: 2
+      });
+    }
+
+    // Rest of map is NORMAL zone (implicit)
+    const normalZone = {
+      type: 'NORMAL',
+      targetCoverage: 0.35 + Math.random() * 0.1, // 35-45%
+      minGap: 2
+    };
+
+    console.log(`  Open zones: ${zones.filter(z => z.type === 'OPEN').length}`);
+    console.log(`  Tight zones: ${zones.filter(z => z.type === 'TIGHT').length}`);
+    console.log(`  Normal zone: rest of map`);
+
+    // Helper to determine which zone a position is in
+    const getZone = (row, col) => {
+      for (const zone of zones) {
+        if (row >= zone.startRow && row <= zone.endRow &&
+            col >= zone.startCol && col <= zone.endCol) {
+          return zone;
+        }
+      }
+      return normalZone;
+    };
+
+    // Helper to calculate zone coverage
+    const calculateZoneCoverage = (zone, tiles) => {
+      if (zone.type === 'NORMAL') {
+        // For normal zone, calculate coverage of all tiles NOT in other zones
+        let filled = 0, total = 0;
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            const tileZone = getZone(row, col);
+            if (tileZone.type === 'NORMAL') {
+              total++;
+              if (tiles[row][col] !== null) filled++;
+            }
+          }
+        }
+        return total > 0 ? filled / total : 0;
       } else {
-        // Count neighbors matching terrainType
-        return neighbors.filter(([r, c]) => tilesArray[r][c] === terrainType).length;
+        // For specific zones, calculate coverage within bounds
+        let filled = 0, total = 0;
+        for (let row = zone.startRow; row <= zone.endRow; row++) {
+          for (let col = zone.startCol; col <= zone.endCol; col++) {
+            total++;
+            if (tiles[row][col] !== null) filled++;
+          }
+        }
+        return total > 0 ? filled / total : 0;
       }
     };
 
-    // Flood fill to find connected regions
-    const floodFill = (tilesArray, startRow, startCol, targetType) => {
-      const queue = [[startRow, startCol]];
+    // ===== PHASE 4 & 5: TEMPLATE PLACEMENT WITH VALIDATION =====
+    console.log('\n--- PHASE 4: Template Placement ---');
+
+    // Helper: Choose weighted random template
+    const chooseTemplate = (templates) => {
+      const totalWeight = Object.values(templates).reduce((sum, t) => sum + t.weight, 0);
+      let random = Math.random() * totalWeight;
+
+      for (const [name, template] of Object.entries(templates)) {
+        random -= template.weight;
+        if (random <= 0) return template.pattern;
+      }
+
+      return Object.values(templates)[0].pattern;
+    };
+
+    // Helper: Count tiles in template
+    const countTilesInTemplate = (template) => {
+      let count = 0;
+      for (const row of template) {
+        for (const cell of row) {
+          if (cell === 1) count++;
+        }
+      }
+      return count;
+    };
+
+    // Helper: Flood fill to find connected component size
+    const floodFillSize = (tiles, startRow, startCol, targetType) => {
       const visited = new Set();
-      const cluster = [];
+      const queue = [[startRow, startCol]];
+      let size = 0;
 
       while (queue.length > 0) {
         const [row, col] = queue.shift();
         const key = `${row},${col}`;
 
-        if (!isValid(row, col) || visited.has(key) || tilesArray[row][col] !== targetType) continue;
+        if (!isValid(row, col) || visited.has(key) || tiles[row][col] !== targetType) continue;
 
         visited.add(key);
-        cluster.push([row, col]);
+        size++;
 
-        getNeighbors4(row, col).forEach(([r, c]) => {
+        [[row-1,col], [row+1,col], [row,col-1], [row,col+1]].forEach(([r, c]) => {
           if (!visited.has(`${r},${c}`)) queue.push([r, c]);
         });
       }
 
-      return cluster;
+      return size;
     };
 
-    // Get structure dimensions
-    const getStructureDimensions = (tilesList) => {
-      if (tilesList.length === 0) return { width: 0, height: 0, length: 0, thickness: 0 };
+    // CRITICAL: Placement validation function (prevents OTGs)
+    const checkPlacementValid = (template, row, col, tiles, zone, terrainType) => {
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
 
-      let minRow = CANVAS_HEIGHT, maxRow = 0;
-      let minCol = CANVAS_WIDTH, maxCol = 0;
+      // Check 1: Does template fit in bounds?
+      if (row < 0 || col < 0 || row + templateHeight > CANVAS_HEIGHT || col + templateWidth > CANVAS_WIDTH) {
+        return false;
+      }
 
-      tilesList.forEach(([r, c]) => {
-        minRow = Math.min(minRow, r);
-        maxRow = Math.max(maxRow, r);
-        minCol = Math.min(minCol, c);
-        maxCol = Math.max(maxCol, c);
-      });
-
-      const width = maxCol - minCol + 1;
-      const height = maxRow - minRow + 1;
-      const length = Math.max(width, height);
-      const thickness = Math.min(width, height);
-
-      return { width, height, length, thickness };
-    };
-
-    // ===== PHASE 1: INITIAL RANDOM FILL =====
-    console.log('\n--- PHASE 1: Initial Random Fill ---');
-
-    const terrainConfigs = [];
-    if (wallDensity > 0) terrainConfigs.push({ type: TERRAIN_TYPES.WALL, density: wallDensity, name: 'WALL' });
-    if (waterDensity > 0) terrainConfigs.push({ type: TERRAIN_TYPES.WATER, density: waterDensity, name: 'WATER' });
-    if (grassDensity > 0) terrainConfigs.push({ type: TERRAIN_TYPES.GRASS, density: grassDensity, name: 'GRASS' });
-
-    // Randomly place individual tiles across the map
-    terrainConfigs.forEach(({ type, density, name }) => {
-      const targetCount = Math.floor((density / 100) * totalTiles);
-      console.log(`  ${name}: targeting ${targetCount} tiles (${density}%)`);
-
-      let placed = 0;
-      let attempts = 0;
-      const maxAttempts = targetCount * 5;
-
-      while (placed < targetCount && attempts < maxAttempts) {
-        attempts++;
-        const row = Math.floor(Math.random() * CANVAS_HEIGHT);
-        const col = Math.floor(Math.random() * CANVAS_WIDTH);
-
-        if (tiles[row][col] === null) {
-          tiles[row][col] = type;
-          placed++;
+      // Check 2: Does template overlap existing structure?
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1 && tiles[row + i][col + j] !== null) {
+            return false;
+          }
         }
       }
 
-      console.log(`  ${name}: placed ${placed} random tiles`);
-    });
+      // Check 3: CRITICAL OTG PREVENTION
+      // Check all tiles around template perimeter
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] !== 1) continue;
 
-    // Calculate initial coverage
-    let initialFilled = 0;
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        if (tiles[row][col] !== null) initialFilled++;
-      }
-    }
-    console.log(`  Initial coverage: ${((initialFilled / totalTiles) * 100).toFixed(1)}%`);
+          const tileRow = row + i;
+          const tileCol = col + j;
 
-    // ===== PHASE 2: CELLULAR AUTOMATA ITERATIONS =====
-    console.log('\n--- PHASE 2: Cellular Automata (5-6 iterations) ---');
+          // Check 8-directional neighbors
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              if (dr === 0 && dc === 0) continue;
 
-    const CA_ITERATIONS = 5 + Math.floor(Math.random() * 2); // 5 or 6
-    console.log(`  Running ${CA_ITERATIONS} CA iterations...`);
+              const neighborRow = tileRow + dr;
+              const neighborCol = tileCol + dc;
 
-    for (let iteration = 0; iteration < CA_ITERATIONS; iteration++) {
-      // Work on a COPY to avoid cascading effects
-      const newTiles = tiles.map(row => [...row]);
+              if (!isValid(neighborRow, neighborCol)) continue;
 
-      for (let row = 0; row < CANVAS_HEIGHT; row++) {
-        for (let col = 0; col < CANVAS_WIDTH; col++) {
-          const currentTile = tiles[row][col];
+              const neighborTile = tiles[neighborRow][neighborCol];
+              if (neighborTile === null) continue;
 
-          if (currentTile !== null) {
-            // RULE SET A - For currently FILLED tiles
-            const sameTypeNeighbors = countNeighbors(tiles, row, col, currentTile);
+              // Check if neighbor is different terrain type
+              if (neighborTile !== terrainType) {
+                // Would create OTG with different terrain - reject
+                return false;
+              }
 
-            if (sameTypeNeighbors < 3) {
-              // Isolated tiles and thin protrusions die off
-              newTiles[row][col] = null;
-            } else if (sameTypeNeighbors >= 4) {
-              // Part of solid structure, survives
-              newTiles[row][col] = currentTile;
-            } else {
-              // sameTypeNeighbors === 3: 50% chance to survive
-              newTiles[row][col] = Math.random() < 0.5 ? currentTile : null;
-            }
-          } else {
-            // RULE SET B - For currently EMPTY tiles
-            const totalFilledNeighbors = countNeighbors(tiles, row, col, null);
-
-            if (totalFilledNeighbors >= 5) {
-              // Fill with most common neighbor terrain type
-              const neighbors = getNeighbors8(row, col);
-              const typeCounts = {};
-              neighbors.forEach(([r, c]) => {
-                const type = tiles[r][c];
-                if (type !== null) {
-                  typeCounts[type] = (typeCounts[type] || 0) + 1;
+              // Same terrain type - check if connection would create over-sized structure
+              // Find the minimum distance to neighbor
+              let minDist = Infinity;
+              for (let ti = 0; ti < templateHeight; ti++) {
+                for (let tj = 0; tj < templateWidth; tj++) {
+                  if (template[ti][tj] !== 1) continue;
+                  const dist = Math.max(Math.abs((row + ti) - neighborRow), Math.abs((col + tj) - neighborCol));
+                  minDist = Math.min(minDist, dist);
                 }
-              });
+              }
 
-              // Find most common type
-              let maxCount = 0;
-              let mostCommonType = null;
-              Object.entries(typeCounts).forEach(([type, count]) => {
-                if (count > maxCount) {
-                  maxCount = count;
-                  mostCommonType = type;
+              if (minDist === 1) {
+                // Direct adjacency - would merge. Check merged size.
+                // Estimate merged size
+                const templateSize = countTilesInTemplate(template);
+                const neighborSize = floodFillSize(tiles, neighborRow, neighborCol, neighborTile);
+                const estimatedMergedSize = templateSize + neighborSize;
+
+                const maxSize = terrainType === TERRAIN_TYPES.WALL ? 35 :
+                               terrainType === TERRAIN_TYPES.GRASS ? 50 : 25;
+
+                if (estimatedMergedSize > maxSize) {
+                  return false; // Would create over-sized structure
                 }
-              });
-
-              if (mostCommonType !== null) {
-                newTiles[row][col] = mostCommonType;
               }
             }
           }
         }
       }
 
-      tiles = newTiles;
-      console.log(`  Iteration ${iteration + 1}/${CA_ITERATIONS} complete`);
-    }
+      // Check 4: Zone-specific gap requirements
+      // For now, we check that placement respects zone min gaps from different terrain
+      // This is implicitly handled by Check 3 above
 
-    // ===== PHASE 3: STRUCTURE SIZE ENFORCEMENT =====
-    console.log('\n--- PHASE 3: Structure Size Enforcement ---');
-
-    // A. Remove tiny structures (< 4 tiles)
-    let tinyStructuresRemoved = 0;
-    const processed = new Set();
-
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        const key = `${row},${col}`;
-        const type = tiles[row][col];
-
-        if (type !== null && !processed.has(key)) {
-          const cluster = floodFill(tiles, row, col, type);
-          cluster.forEach(([r, c]) => processed.add(`${r},${c}`));
-
-          if (cluster.length < 4) {
-            // Remove tiny structure
-            cluster.forEach(([r, c]) => tiles[r][c] = null);
-            tinyStructuresRemoved++;
+      // Check 5: Section balance
+      // Count how many tiles would go in mid vs backside
+      let midTiles = 0, backsideTiles = 0;
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            if (isInMidStrip(row + i)) midTiles++;
+            else backsideTiles++;
           }
         }
       }
-    }
-    console.log(`  Removed ${tinyStructuresRemoved} tiny structures (< 4 tiles)`);
 
-    // B. Break up oversized structures
-    let oversizedBroken = 0;
-    processed.clear();
+      // Calculate current coverage
+      let currentMidFilled = 0, currentMidTotal = 0;
+      let currentBacksideFilled = 0, currentBacksideTotal = 0;
 
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        const key = `${row},${col}`;
-        const type = tiles[row][col];
-
-        if (type !== null && !processed.has(key)) {
-          const cluster = floodFill(tiles, row, col, type);
-          cluster.forEach(([r, c]) => processed.add(`${r},${c}`));
-
-          const dims = getStructureDimensions(cluster);
-          const maxSize = (type === TERRAIN_TYPES.GRASS) ? 50 : 30;
-
-          if (cluster.length > maxSize) {
-            // Break structure by removing tiles along center line
-            const avgRow = cluster.reduce((sum, [r]) => sum + r, 0) / cluster.length;
-            const avgCol = cluster.reduce((sum, [, c]) => sum + c, 0) / cluster.length;
-
-            // Remove tiles close to center
-            cluster.forEach(([r, c]) => {
-              const distToCenter = Math.abs(r - avgRow) + Math.abs(c - avgCol);
-              if (distToCenter < 2) {
-                tiles[r][c] = null;
-              }
-            });
-            oversizedBroken++;
-          }
-        }
-      }
-    }
-    console.log(`  Broke ${oversizedBroken} oversized structures`);
-
-    // C. Remove excessive protrusions (2 passes)
-    console.log('  Removing excessive protrusions...');
-    for (let pass = 0; pass < 2; pass++) {
-      let protrusionsRemoved = 0;
-      for (let row = 0; row < CANVAS_HEIGHT; row++) {
-        for (let col = 0; col < CANVAS_WIDTH; col++) {
-          if (tiles[row][col] !== null) {
-            const type = tiles[row][col];
-            const sameTypeNeighbors = countNeighbors(tiles, row, col, type);
-
-            if (sameTypeNeighbors <= 2) {
-              tiles[row][col] = null;
-              protrusionsRemoved++;
-            }
-          }
-        }
-      }
-      console.log(`    Pass ${pass + 1}: removed ${protrusionsRemoved} protrusions`);
-    }
-
-    // ===== PHASE 4: STRUCTURE SHAPE VARIETY =====
-    console.log('\n--- PHASE 4: Structure Shape Variety ---');
-
-    processed.clear();
-    let blobbyStructures = 0;
-    let totalStructures = 0;
-
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        const key = `${row},${col}`;
-        const type = tiles[row][col];
-
-        if (type !== null && !processed.has(key)) {
-          const cluster = floodFill(tiles, row, col, type);
-          cluster.forEach(([r, c]) => processed.add(`${r},${c}`));
-
-          if (cluster.length >= 4) {
-            totalStructures++;
-            const dims = getStructureDimensions(cluster);
-            const aspectRatio = dims.width / dims.height;
-
-            // Check if blobby (aspect ratio between 1.2-1.8)
-            if (aspectRatio > 0.83 && aspectRatio < 1.2) {
-              blobbyStructures++;
-            }
-          }
-        }
-      }
-    }
-
-    console.log(`  Total structures: ${totalStructures}, Blobby: ${blobbyStructures}`);
-
-    // ===== PHASE 5: MAP SECTION BALANCING =====
-    console.log('\n--- PHASE 5: Map Section Balancing ---');
-
-    const calculateSectionCoverage = () => {
-      let midFilled = 0, midTotal = 0;
-      let backsideFilled = 0, backsideTotal = 0;
-
-      for (let row = 0; row < CANVAS_HEIGHT; row++) {
-        for (let col = 0; col < CANVAS_WIDTH; col++) {
-          if (isInMidStrip(row)) {
-            midTotal++;
-            if (tiles[row][col] !== null) midFilled++;
+      for (let r = 0; r < CANVAS_HEIGHT; r++) {
+        for (let c = 0; c < CANVAS_WIDTH; c++) {
+          if (isInMidStrip(r)) {
+            currentMidTotal++;
+            if (tiles[r][c] !== null) currentMidFilled++;
           } else {
-            backsideTotal++;
-            if (tiles[row][col] !== null) backsideFilled++;
+            currentBacksideTotal++;
+            if (tiles[r][c] !== null) currentBacksideFilled++;
           }
         }
       }
 
-      return {
-        midCoverage: (midFilled / midTotal) * 100,
-        backsideCoverage: (backsideFilled / backsideTotal) * 100
-      };
+      const currentMidCoverage = currentMidFilled / currentMidTotal;
+      const currentBacksideCoverage = currentBacksideFilled / currentBacksideTotal;
+
+      const newMidCoverage = (currentMidFilled + midTiles) / currentMidTotal;
+      const newBacksideCoverage = (currentBacksideFilled + backsideTiles) / currentBacksideTotal;
+
+      // Don't allow any section to exceed 50% coverage
+      if (newMidCoverage > 0.50 || newBacksideCoverage > 0.50) {
+        return false;
+      }
+
+      return true; // Placement is valid!
     };
 
-    const { midCoverage, backsideCoverage } = calculateSectionCoverage();
-    const difference = Math.abs(midCoverage - backsideCoverage);
+    // Helper: Place template
+    const placeTemplate = (template, row, col, terrainType, tiles) => {
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
+      let tilesPlaced = 0;
 
-    console.log(`  Mid strip coverage: ${midCoverage.toFixed(1)}%`);
-    console.log(`  Backside coverage: ${backsideCoverage.toFixed(1)}%`);
-    console.log(`  Difference: ${difference.toFixed(1)}%`);
-
-    if (difference > 15) {
-      console.log('  Balancing sections...');
-      const targetSection = midCoverage > backsideCoverage ? 'mid' : 'backside';
-
-      // Find and remove smallest structures from oversaturated section
-      processed.clear();
-      const structuresToRemove = [];
-
-      for (let row = 0; row < CANVAS_HEIGHT; row++) {
-        for (let col = 0; col < CANVAS_WIDTH; col++) {
-          const key = `${row},${col}`;
-          const type = tiles[row][col];
-
-          if (type !== null && !processed.has(key)) {
-            const cluster = floodFill(tiles, row, col, type);
-            cluster.forEach(([r, c]) => processed.add(`${r},${c}`));
-
-            const inTarget = targetSection === 'mid' ? isInMidStrip(row) : isInBackside(row);
-            if (inTarget) {
-              structuresToRemove.push({ cluster, size: cluster.length });
-            }
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            tiles[row + i][col + j] = terrainType;
+            tilesPlaced++;
           }
         }
       }
 
-      // Sort by size and remove smallest
-      structuresToRemove.sort((a, b) => a.size - b.size);
-      let removed = 0;
-      for (const { cluster } of structuresToRemove) {
-        cluster.forEach(([r, c]) => tiles[r][c] = null);
-        removed++;
+      return tilesPlaced;
+    };
 
-        const newCov = calculateSectionCoverage();
-        const newDiff = Math.abs(newCov.midCoverage - newCov.backsideCoverage);
-        if (newDiff <= 15) break;
-      }
+    // Place each terrain type
+    const terrainConfigs = [
+      { type: TERRAIN_TYPES.WALL, targetCount: targetWalls, templates: WALL_TEMPLATES, name: 'WALL' },
+      { type: TERRAIN_TYPES.GRASS, targetCount: targetBushes, templates: BUSH_TEMPLATES, name: 'BUSH' },
+      { type: TERRAIN_TYPES.WATER, targetCount: targetWater, templates: WATER_TEMPLATES, name: 'WATER' }
+    ];
 
-      console.log(`  Removed ${removed} structures for balance`);
-    }
+    for (const { type, targetCount, templates, name } of terrainConfigs) {
+      if (targetCount === 0) continue;
 
-    // ===== PHASE 6: EDGE CLEANUP =====
-    console.log('\n--- PHASE 6: Edge Cleanup ---');
+      console.log(`\n  Placing ${name}...`);
+      let currentTileCount = 0;
+      let attemptCount = 0;
+      const maxAttempts = 5000;
 
-    let edgeCleaned = 0;
-    processed.clear();
+      while (currentTileCount < targetCount && attemptCount < maxAttempts) {
+        attemptCount++;
 
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        const key = `${row},${col}`;
-        const type = tiles[row][col];
+        // Step 1: Choose template
+        const template = chooseTemplate(templates);
+        const templateSize = countTilesInTemplate(template);
 
-        // Check if near edge
-        const nearEdge = row < 2 || row >= CANVAS_HEIGHT - 2 || col < 2 || col >= CANVAS_WIDTH - 2;
+        // Step 2: Choose random position
+        const row = Math.floor(Math.random() * (CANVAS_HEIGHT - template.length + 1));
+        const col = Math.floor(Math.random() * (CANVAS_WIDTH - template[0].length + 1));
 
-        if (type !== null && nearEdge && !processed.has(key)) {
-          const cluster = floodFill(tiles, row, col, type);
-          cluster.forEach(([r, c]) => processed.add(`${r},${c}`));
+        // Step 3: Determine zone
+        const zone = getZone(row, col);
 
-          if (cluster.length < 6) {
-            cluster.forEach(([r, c]) => tiles[r][c] = null);
-            edgeCleaned++;
-          }
+        // Step 4: Check if zone is over-saturated
+        const zoneCurrentCoverage = calculateZoneCoverage(zone, placedTiles);
+        if (zoneCurrentCoverage >= zone.targetCoverage) {
+          continue; // Zone is full
         }
+
+        // Step 5: Validate placement (NO OTGs!)
+        const isValidPlacement = checkPlacementValid(template, row, col, placedTiles, zone, type);
+        if (!isValidPlacement) {
+          continue; // Try again
+        }
+
+        // Step 6: Place template
+        const tilesPlaced = placeTemplate(template, row, col, type, placedTiles);
+        currentTileCount += tilesPlaced;
+        placedStructures.push({ type: name, position: [row, col], size: tilesPlaced });
       }
+
+      console.log(`  ${name}: placed ${currentTileCount}/${targetCount} tiles in ${attemptCount} attempts`);
     }
 
-    console.log(`  Cleaned ${edgeCleaned} small edge structures`);
-
-    // ===== PHASE 7: SYMMETRY APPLICATION =====
-    console.log('\n--- PHASE 7: Symmetry Application ---');
+    // ===== PHASE 6: SYMMETRY APPLICATION =====
+    console.log('\n--- PHASE 6: Symmetry Application ---');
 
     if (mirrorVertical) {
       console.log('  Applying vertical mirror...');
       for (let row = 0; row < CANVAS_HEIGHT; row++) {
         for (let col = 0; col < Math.ceil(CANVAS_WIDTH / 2); col++) {
           const mirrorCol = CANVAS_WIDTH - 1 - col;
-          tiles[row][mirrorCol] = tiles[row][col];
+          placedTiles[row][mirrorCol] = placedTiles[row][col];
         }
       }
     }
@@ -521,7 +550,7 @@ const MapGenerator = () => {
       for (let row = 0; row < Math.ceil(CANVAS_HEIGHT / 2); row++) {
         for (let col = 0; col < CANVAS_WIDTH; col++) {
           const mirrorRow = CANVAS_HEIGHT - 1 - row;
-          tiles[mirrorRow][col] = tiles[row][col];
+          placedTiles[mirrorRow][col] = placedTiles[row][col];
         }
       }
     }
@@ -537,122 +566,137 @@ const MapGenerator = () => {
           const mirrorCol = Math.round(2 * centerCol - col);
 
           if (isValid(mirrorRow, mirrorCol) && mirrorRow > row) {
-            tiles[mirrorRow][mirrorCol] = tiles[row][col];
+            placedTiles[mirrorRow][mirrorCol] = placedTiles[row][col];
           }
         }
       }
     }
 
-    // Run ONE final CA iteration to smooth seams after mirroring
-    if (mirrorVertical || mirrorHorizontal || mirrorDiagonal) {
-      console.log('  Smoothing mirror seams with 1 CA iteration...');
-      const newTiles = tiles.map(row => [...row]);
+    // ===== PHASE 7: FINAL VALIDATION =====
+    console.log('\n--- PHASE 7: Final Validation ---');
 
-      for (let row = 0; row < CANVAS_HEIGHT; row++) {
-        for (let col = 0; col < CANVAS_WIDTH; col++) {
-          const currentTile = tiles[row][col];
+    // 1. Scan for OTGs (should be 0)
+    let otgCount = 0;
 
-          if (currentTile !== null) {
-            const sameTypeNeighbors = countNeighbors(tiles, row, col, currentTile);
-            if (sameTypeNeighbors < 3) {
-              newTiles[row][col] = null;
-            }
-          } else {
-            const totalFilledNeighbors = countNeighbors(tiles, row, col, null);
-            if (totalFilledNeighbors >= 6) {
-              const neighbors = getNeighbors8(row, col);
-              const typeCounts = {};
-              neighbors.forEach(([r, c]) => {
-                const type = tiles[r][c];
-                if (type !== null) {
-                  typeCounts[type] = (typeCounts[type] || 0) + 1;
-                }
-              });
-
-              let maxCount = 0;
-              let mostCommonType = null;
-              Object.entries(typeCounts).forEach(([type, count]) => {
-                if (count > maxCount) {
-                  maxCount = count;
-                  mostCommonType = type;
-                }
-              });
-
-              if (mostCommonType !== null) {
-                newTiles[row][col] = mostCommonType;
-              }
-            }
-          }
-        }
-      }
-
-      tiles = newTiles;
-    }
-
-    // ===== PHASE 8: FINAL VALIDATION =====
-    console.log('\n--- PHASE 8: Final Validation ---');
-
-    // 1. Scan for 1×1 gaps
-    let gapsFilled = 0;
+    // Check for 1-tile gaps surrounded by filled
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       for (let col = 0; col < CANVAS_WIDTH; col++) {
-        if (tiles[row][col] === null) {
-          const neighbors4 = getNeighbors4(row, col);
+        if (placedTiles[row][col] === null) {
+          const neighbors4 = [[row-1,col], [row+1,col], [row,col-1], [row,col+1]]
+            .filter(([r, c]) => isValid(r, c));
+
           if (neighbors4.length === 4) {
-            const filledNeighbors = neighbors4.filter(([r, c]) => tiles[r][c] !== null);
-
+            const filledNeighbors = neighbors4.filter(([r, c]) => placedTiles[r][c] !== null);
             if (filledNeighbors.length === 4) {
-              // Surrounded - fill with most common neighbor type
-              const typeCounts = {};
-              filledNeighbors.forEach(([r, c]) => {
-                const type = tiles[r][c];
-                typeCounts[type] = (typeCounts[type] || 0) + 1;
-              });
-
-              let maxCount = 0;
-              let mostCommonType = null;
-              Object.entries(typeCounts).forEach(([type, count]) => {
-                if (count > maxCount) {
-                  maxCount = count;
-                  mostCommonType = type;
-                }
-              });
-
-              if (mostCommonType !== null) {
-                tiles[row][col] = mostCommonType;
-                gapsFilled++;
-              }
+              console.log(`  ERROR: 1-tile gap at (${row}, ${col})`);
+              otgCount++;
             }
           }
         }
       }
     }
-    console.log(`  1×1 gaps filled: ${gapsFilled}`);
 
-    // 2. Scan for 1×1 protrusions
-    let protrusionsRemoved = 0;
+    // Check for 1-tile protrusions of different terrain
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       for (let col = 0; col < CANVAS_WIDTH; col++) {
-        if (tiles[row][col] !== null) {
-          const type = tiles[row][col];
-          const sameTypeNeighbors = countNeighbors(tiles, row, col, type);
+        const tile = placedTiles[row][col];
+        if (tile !== null) {
+          const neighbors8 = [
+            [row-1,col], [row+1,col], [row,col-1], [row,col+1],
+            [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
+          ].filter(([r, c]) => isValid(r, c));
 
-          if (sameTypeNeighbors === 0) {
-            tiles[row][col] = null;
-            protrusionsRemoved++;
+          const sameTypeNeighbors = neighbors8.filter(([r, c]) => placedTiles[r][c] === tile);
+          const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
+            placedTiles[r][c] !== null && placedTiles[r][c] !== tile
+          );
+
+          if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
+            console.log(`  ERROR: 1-tile protrusion at (${row}, ${col})`);
+            otgCount++;
           }
         }
       }
     }
-    console.log(`  1×1 protrusions removed: ${protrusionsRemoved}`);
+
+    // 2. Verify symmetry
+    let symmetryErrors = 0;
+
+    if (mirrorVertical) {
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH / 2; col++) {
+          const mirrorCol = CANVAS_WIDTH - 1 - col;
+          if (placedTiles[row][col] !== placedTiles[row][mirrorCol]) {
+            symmetryErrors++;
+          }
+        }
+      }
+    }
+
+    if (mirrorHorizontal) {
+      for (let row = 0; row < CANVAS_HEIGHT / 2; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          const mirrorRow = CANVAS_HEIGHT - 1 - row;
+          if (placedTiles[row][col] !== placedTiles[mirrorRow][col]) {
+            symmetryErrors++;
+          }
+        }
+      }
+    }
 
     // 3. Log statistics
     console.log('\n=== Map Generation Complete ===');
+    console.log(`Structures placed: ${placedStructures.length}`);
 
+    const byType = {
+      WALL: placedStructures.filter(s => s.type === 'WALL').length,
+      BUSH: placedStructures.filter(s => s.type === 'BUSH').length,
+      WATER: placedStructures.filter(s => s.type === 'WATER').length
+    };
+    console.log('By type:', byType);
+
+    const avgSize = placedStructures.length > 0 ?
+      (placedStructures.reduce((sum, s) => sum + s.size, 0) / placedStructures.length).toFixed(1) : 0;
+    console.log(`Average structure size: ${avgSize} tiles`);
+
+    // Size distribution
+    const small = placedStructures.filter(s => s.size <= 4).length;
+    const medium = placedStructures.filter(s => s.size > 4 && s.size <= 10).length;
+    const large = placedStructures.filter(s => s.size > 10).length;
+    console.log(`Size distribution: small=${small}, medium=${medium}, large=${large}`);
+
+    // Zone coverage
+    for (const zone of zones) {
+      const coverage = (calculateZoneCoverage(zone, placedTiles) * 100).toFixed(1);
+      console.log(`${zone.type} zone coverage: ${coverage}%`);
+    }
+    const normalCoverage = (calculateZoneCoverage(normalZone, placedTiles) * 100).toFixed(1);
+    console.log(`NORMAL zone coverage: ${normalCoverage}%`);
+
+    // Section coverage
+    let midFilled = 0, midTotal = 0, backsideFilled = 0, backsideTotal = 0;
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        if (isInMidStrip(row)) {
+          midTotal++;
+          if (placedTiles[row][col] !== null) midFilled++;
+        } else {
+          backsideTotal++;
+          if (placedTiles[row][col] !== null) backsideFilled++;
+        }
+      }
+    }
+    console.log(`Mid strip coverage: ${((midFilled / midTotal) * 100).toFixed(1)}%`);
+    console.log(`Backside coverage: ${((backsideFilled / backsideTotal) * 100).toFixed(1)}%`);
+
+    console.log(`OTGs found: ${otgCount} (should be 0)`);
+    console.log(`Symmetry errors: ${symmetryErrors} (should be 0)`);
+
+    // Final terrain distribution
     let wallCount = 0, waterCount = 0, grassCount = 0, emptyCount = 0;
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       for (let col = 0; col < CANVAS_WIDTH; col++) {
-        const tile = tiles[row][col];
+        const tile = placedTiles[row][col];
         if (tile === TERRAIN_TYPES.WALL) wallCount++;
         else if (tile === TERRAIN_TYPES.WATER) waterCount++;
         else if (tile === TERRAIN_TYPES.GRASS) grassCount++;
@@ -664,42 +708,14 @@ const MapGenerator = () => {
     const waterPercent = ((waterCount / totalTiles) * 100).toFixed(1);
     const grassPercent = ((grassCount / totalTiles) * 100).toFixed(1);
 
-    console.log('Final terrain distribution:');
-    console.log(`  WALL: ${wallCount} tiles (${wallPercent}% - target was ${wallDensity}%)`);
-    console.log(`  WATER: ${waterCount} tiles (${waterPercent}% - target was ${waterDensity}%)`);
-    console.log(`  GRASS: ${grassCount} tiles (${grassPercent}% - target was ${grassDensity}%)`);
+    console.log('\nFinal terrain distribution:');
+    console.log(`  WALL: ${wallCount} tiles (${wallPercent}%)`);
+    console.log(`  WATER: ${waterCount} tiles (${waterPercent}%)`);
+    console.log(`  GRASS: ${grassCount} tiles (${grassPercent}%)`);
     console.log(`  EMPTY: ${emptyCount} tiles`);
-
-    // Structure count
-    processed.clear();
-    let structureCount = 0;
-    let totalStructureSize = 0;
-
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        const key = `${row},${col}`;
-        const type = tiles[row][col];
-
-        if (type !== null && !processed.has(key)) {
-          const cluster = floodFill(tiles, row, col, type);
-          cluster.forEach(([r, c]) => processed.add(`${r},${c}`));
-          structureCount++;
-          totalStructureSize += cluster.length;
-        }
-      }
-    }
-
-    const avgSize = structureCount > 0 ? (totalStructureSize / structureCount).toFixed(1) : 0;
-    console.log(`  Structures created: ${structureCount}`);
-    console.log(`  Avg structure size: ${avgSize} tiles`);
-
-    const { midCoverage: finalMid, backsideCoverage: finalBackside } = calculateSectionCoverage();
-    console.log(`  Mid strip coverage: ${finalMid.toFixed(1)}%`);
-    console.log(`  Backside coverage: ${finalBackside.toFixed(1)}%`);
-    console.log(`  OTGs found: 0 (should be 0)`);
     console.log('==========================================\n');
 
-    setTiles(tiles);
+    setTiles(placedTiles);
   };
 
   const clearCanvas = () => {
