@@ -34,7 +34,30 @@
     </style>
 </head>
 <body>
+    <div id="loading" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a1a; color: #00ff00; font-family: monospace; padding: 20px; z-index: 9999;">
+        <h2>Loading Map Generator...</h2>
+        <div id="status"></div>
+    </div>
     <div id="root"></div>
+
+    <script>
+        // Error and status logging
+        const statusDiv = document.getElementById('status');
+        const log = (msg, isError = false) => {
+            const time = new Date().toLocaleTimeString();
+            statusDiv.innerHTML += `<div style="color: ${isError ? '#ff0000' : '#00ff00'}">[${time}] ${msg}</div>`;
+            console.log(msg);
+        };
+
+        window.addEventListener('error', (e) => {
+            log(`ERROR: ${e.message} at ${e.filename}:${e.lineno}`, true);
+        });
+
+        log('Step 1: Page loaded');
+        log('Step 2: React = ' + (typeof React !== 'undefined'));
+        log('Step 3: ReactDOM = ' + (typeof ReactDOM !== 'undefined'));
+        log('Step 4: Babel = ' + (typeof Babel !== 'undefined'));
+    </script>
 
     <!-- Component and App inline -->
     <script type="text/babel">
@@ -1420,8 +1443,22 @@ const MapGenerator = () => {
 window.MapGenerator = MapGenerator;
 
         // Render the app
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<MapGenerator />);
+        try {
+            log('Step 5: MapGenerator component defined');
+            log('Step 6: Creating React root...');
+            const root = ReactDOM.createRoot(document.getElementById('root'));
+            log('Step 7: Rendering MapGenerator...');
+            root.render(<MapGenerator />);
+            log('Step 8: Render complete!');
+
+            // Hide loading screen after a brief delay
+            setTimeout(() => {
+                document.getElementById('loading').style.display = 'none';
+            }, 1000);
+        } catch (error) {
+            log('RENDER ERROR: ' + error.message, true);
+            log('Stack: ' + error.stack, true);
+        }
     </script>
 </body>
 </html>
