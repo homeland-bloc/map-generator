@@ -33,6 +33,7 @@ const MapGenerator = () => {
   const [mirrorVertical, setMirrorVertical] = useState(false);
   const [mirrorHorizontal, setMirrorHorizontal] = useState(false);
   const [mirrorDiagonal, setMirrorDiagonal] = useState(false);
+  const [slidersOpen, setSlidersOpen] = useState(false);
   const canvasRef = useRef(null);
 
   const handleTileClick = (row, col) => {
@@ -339,21 +340,38 @@ const MapGenerator = () => {
         let placed = [];
 
         if (structureType === 'linear') {
-          // Linear walls: 3-10 tiles long
-          const length = 3 + Math.floor(Math.random() * 8);
+          // Linear structures with size limits based on terrain
+          let length;
+          if (name === 'GRASS') {
+            length = 3 + Math.floor(Math.random() * 9); // 3-11 tiles for grass
+          } else {
+            length = 3 + Math.floor(Math.random() * 7); // 3-9 tiles for walls/water
+          }
           const direction = ['horizontal', 'vertical', 'diagonal-ne', 'diagonal-se'][Math.floor(Math.random() * 4)];
           placed = placeLinearWall(startRow, startCol, length, direction, type);
         }
         else if (structureType === 'blocky') {
-          // Blocky structures: 2-5 wide, 2-5 tall
-          const width = 2 + Math.floor(Math.random() * 4);
-          const height = 2 + Math.floor(Math.random() * 4);
+          // Blocky structures with size limits based on terrain
+          let width, height;
+          if (name === 'GRASS') {
+            width = 2 + Math.floor(Math.random() * 3);  // 2-4 wide for grass
+            height = 2 + Math.floor(Math.random() * 3); // 2-4 tall for grass
+          } else {
+            width = 2 + Math.floor(Math.random() * 2);  // 2-3 wide for walls/water
+            height = 2 + Math.floor(Math.random() * 2); // 2-3 tall for walls/water
+          }
           placed = placeBlockyStructure(startRow, startCol, width, height, type);
         }
         else {  // curvy
-          // Curvy blobs: 4-15 tiles
-          const size = 4 + Math.floor(Math.random() * 12);
-          const spreadChance = 0.4 + Math.random() * 0.3;
+          // Curvy blobs with size limits based on terrain
+          let size, spreadChance;
+          if (name === 'GRASS') {
+            size = 4 + Math.floor(Math.random() * 12);  // 4-15 tiles for grass
+            spreadChance = 0.35 + Math.random() * 0.25; // 35-60% spread for grass
+          } else {
+            size = 4 + Math.floor(Math.random() * 6);   // 4-9 tiles for walls/water
+            spreadChance = 0.3 + Math.random() * 0.2;   // 30-50% spread for walls/water (less blobby)
+          }
           placed = placeCurvyBlob(startRow, startCol, size, spreadChance, type);
         }
 
@@ -397,15 +415,15 @@ const MapGenerator = () => {
     console.log('\n--- PHASE 3: Minimal Gap Filling ---');
     let gapsFilled = 0;
 
-    // Reduced passes to preserve structure variety
-    for (let pass = 0; pass < 3; pass++) {
+    // Only 1 pass with strict requirements to avoid over-filling
+    for (let pass = 0; pass < 1; pass++) {
       for (let row = 0; row < CANVAS_HEIGHT; row++) {
         for (let col = 0; col < CANVAS_WIDTH; col++) {
           if (newTiles[row][col] === null) {
             const neighbors4 = getNeighbors4(row, col);
             const filledNeighbors4 = neighbors4.filter(([r, c]) => newTiles[r][c] !== null);
 
-            // Only fill if 4 orthogonal neighbors are filled (true pocket)
+            // Only fill if ALL 4 orthogonal neighbors are filled AND they're all the same type
             if (filledNeighbors4.length === 4) {
               const terrainCounts = {};
               filledNeighbors4.forEach(([r, c]) => {
@@ -413,6 +431,7 @@ const MapGenerator = () => {
                 terrainCounts[terrain] = (terrainCounts[terrain] || 0) + 1;
               });
 
+              // Only fill if there's a clear majority (3+ of same type)
               let mostCommon = null;
               let maxCount = 0;
               Object.entries(terrainCounts).forEach(([terrain, count]) => {
@@ -422,8 +441,11 @@ const MapGenerator = () => {
                 }
               });
 
-              newTiles[row][col] = mostCommon;
-              gapsFilled++;
+              // Only fill if majority is strong (3+ neighbors of same type)
+              if (maxCount >= 3) {
+                newTiles[row][col] = mostCommon;
+                gapsFilled++;
+              }
             }
           }
         }
@@ -674,48 +696,129 @@ const MapGenerator = () => {
     const midCenterDensity = midCenterFilled / midCenterArea;
     console.log(`  Mid center (7x7) density: ${(midCenterDensity * 100).toFixed(1)}%`);
 
-    // If mid center is sparse, ensure sides have some cover
-    if (midCenterDensity < 0.15) {
-      console.log('  Mid center is sparse, ensuring sides have cover...');
+    // DISABLED: Phase 9.5 auto-fill has been disabled to prevent oversized structures
+    // Users can manually add cover if needed
+    console.log('  Zone balance check complete (auto-fill disabled)');
 
-      // Add some small walls to sides if needed
-      const sidesAreas = [
-        // Left side areas
-        { rowStart: 13, rowEnd: 19, colStart: 1, colEnd: 6 },
-        // Right side areas
-        { rowStart: 13, rowEnd: 19, colStart: 14, colEnd: 19 }
-      ];
+    // ===== PHASE 9.7: STRUCTURE SIZE VALIDATION =====
+    console.log('\n--- PHASE 9.7: Structure Size Validation ---');
 
-      for (const area of sidesAreas) {
-        let sidesFilled = 0;
-        for (let row = area.rowStart; row <= area.rowEnd; row++) {
-          for (let col = area.colStart; col <= area.colEnd; col++) {
-            if (isValid(row, col) && newTiles[row][col] !== null) {
-              sidesFilled++;
-            }
-          }
+    // Size limits based on terrain type
+    const getSizeLimits = (terrainType) => {
+      if (terrainType === TERRAIN_TYPES.GRASS) {
+        return { maxLength: 15, maxThickness: 4 };
+      } else {
+        // Walls and Water
+        return { maxLength: 11, maxThickness: 3 };
+      }
+    };
+
+    // Calculate bounding box dimensions for a cluster
+    const getClusterDimensions = (cluster) => {
+      let minRow = CANVAS_HEIGHT, maxRow = 0;
+      let minCol = CANVAS_WIDTH, maxCol = 0;
+
+      cluster.forEach(([r, c]) => {
+        minRow = Math.min(minRow, r);
+        maxRow = Math.max(maxRow, r);
+        minCol = Math.min(minCol, c);
+        maxCol = Math.max(maxCol, c);
+      });
+
+      const width = maxCol - minCol + 1;
+      const height = maxRow - minRow + 1;
+      const maxDimension = Math.max(width, height);
+      const minDimension = Math.min(width, height);
+
+      return { width, height, maxDimension, minDimension, minRow, maxRow, minCol, maxCol };
+    };
+
+    // Trim oversized structures by removing edge tiles
+    const trimStructure = (cluster, terrainType, limits) => {
+      let trimmed = [...cluster];
+      let attempts = 0;
+      const maxAttempts = 10;
+
+      while (attempts < maxAttempts) {
+        const dims = getClusterDimensions(trimmed);
+
+        // Check if within limits
+        if (dims.maxDimension <= limits.maxLength && dims.minDimension <= limits.maxThickness) {
+          break;
         }
 
-        const sidesArea = (area.rowEnd - area.rowStart + 1) * (area.colEnd - area.colStart + 1);
-        const sidesDensity = sidesFilled / sidesArea;
+        // Find edge tiles (tiles with fewer neighbors) to remove
+        const edgeTiles = trimmed.filter(([row, col]) => {
+          const neighbors = getNeighbors4(row, col);
+          const sameTypeNeighbors = neighbors.filter(([r, c]) => {
+            return trimmed.some(([tr, tc]) => tr === r && tc === c);
+          });
+          return sameTypeNeighbors.length <= 2; // Edge tiles have 2 or fewer neighbors
+        });
 
-        // If sides are also sparse, add a couple small walls
-        if (sidesDensity < 0.15) {
-          console.log(`  Adding cover to sparse side area...`);
-          for (let i = 0; i < 2; i++) {
-            const row = area.rowStart + Math.floor(Math.random() * (area.rowEnd - area.rowStart + 1));
-            const col = area.colStart + Math.floor(Math.random() * (area.colEnd - area.colStart + 1));
-            if (isValid(row, col) && newTiles[row][col] === null) {
-              placeLinearWall(row, col, 3 + Math.floor(Math.random() * 4),
-                ['horizontal', 'vertical'][Math.floor(Math.random() * 2)],
-                TERRAIN_TYPES.WALL);
+        if (edgeTiles.length === 0) break;
+
+        // Remove 20% of edge tiles each iteration
+        const toRemove = Math.max(1, Math.floor(edgeTiles.length * 0.2));
+        for (let i = 0; i < toRemove && edgeTiles.length > 0; i++) {
+          const randomIndex = Math.floor(Math.random() * edgeTiles.length);
+          const [row, col] = edgeTiles.splice(randomIndex, 1)[0];
+          trimmed = trimmed.filter(([r, c]) => !(r === row && c === col));
+          newTiles[row][col] = null;
+        }
+
+        attempts++;
+      }
+
+      return trimmed;
+    };
+
+    // Validate all structures
+    let oversizedRemoved = 0;
+    let oversizedTrimmed = 0;
+    const terrainTypes = [TERRAIN_TYPES.WALL, TERRAIN_TYPES.WATER, TERRAIN_TYPES.GRASS];
+
+    for (const terrainType of terrainTypes) {
+      const limits = getSizeLimits(terrainType);
+      const processedValidation = new Set();
+
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          const key = `${row},${col}`;
+          if (newTiles[row][col] === terrainType && !processedValidation.has(key)) {
+            const cluster = floodFill(row, col, terrainType);
+            cluster.forEach(([r, c]) => processedValidation.add(`${r},${c}`));
+
+            const dims = getClusterDimensions(cluster);
+
+            // Check if structure exceeds size limits
+            if (dims.maxDimension > limits.maxLength || dims.minDimension > limits.maxThickness) {
+              console.log(`  Found oversized structure: ${cluster.length} tiles, ` +
+                         `${dims.width}x${dims.height} (max=${dims.maxDimension}, thick=${dims.minDimension})`);
+
+              // Try to trim it
+              const trimmed = trimStructure(cluster, terrainType, limits);
+              const newDims = getClusterDimensions(trimmed);
+
+              // If still too large, remove entirely
+              if (newDims.maxDimension > limits.maxLength || newDims.minDimension > limits.maxThickness) {
+                console.log(`    Removing oversized structure entirely`);
+                cluster.forEach(([r, c]) => {
+                  newTiles[r][c] = null;
+                });
+                oversizedRemoved++;
+              } else {
+                console.log(`    Trimmed to ${trimmed.length} tiles, ${newDims.width}x${newDims.height}`);
+                oversizedTrimmed++;
+              }
             }
           }
         }
       }
     }
 
-    console.log('  Zone balance check complete');
+    console.log(`  Oversized structures trimmed: ${oversizedTrimmed}`);
+    console.log(`  Oversized structures removed: ${oversizedRemoved}`);
 
     // ===== PHASE 10: FINAL VALIDATION =====
     console.log('\n--- PHASE 10: Final Validation ---');
@@ -887,7 +990,7 @@ const MapGenerator = () => {
 
       <div className="relative z-10 flex items-start justify-center gap-4 p-4 max-w-7xl mx-auto">
         <div className="flex flex-col items-center gap-4 flex-1">
-          <div 
+          <div
             ref={canvasRef}
             className="inline-block border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
             style={{
@@ -901,7 +1004,7 @@ const MapGenerator = () => {
                   const isEvenRow = rowIndex % 2 === 0;
                   const isEvenCol = colIndex % 2 === 0;
                   const isLightSquare = (isEvenRow && isEvenCol) || (!isEvenRow && !isEvenCol);
-                  
+
                   return (
                     <div
                       key={`${rowIndex}-${colIndex}`}
@@ -925,6 +1028,14 @@ const MapGenerator = () => {
             ))}
           </div>
 
+          <button
+            onClick={generateRandomMap}
+            className="w-full max-w-md bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+          >
+            <span style={{ fontSize: '20px' }}>🪄</span>
+            Generate Map
+          </button>
+
           <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-2 w-full max-w-md backdrop-blur-sm">
             <div className="flex items-center justify-center gap-2">
               <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.WALL, minWidth: '60px' }}>
@@ -945,66 +1056,66 @@ const MapGenerator = () => {
             </div>
           </div>
 
-          <div className="bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg p-4 w-full max-w-md backdrop-blur-sm">
-            <h3 className="text-white text-lg font-semibold mb-4 flex items-center gap-2 justify-center">
-              <span style={{ fontSize: '20px' }}>🪄</span>
-              Random Map Generator
-            </h3>
-            
-            <div className="space-y-3">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-white text-sm flex-1">🧱 Walls</span>
-                  <span className="text-white text-sm">{wallDensity}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={wallDensity}
-                  onChange={(e) => setWallDensity(Number(e.target.value))}
-                  className="w-full accent-amber-700"
-                />
-              </div>
-              
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-white text-sm flex-1">🌊 Water</span>
-                  <span className="text-white text-sm">{waterDensity}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={waterDensity}
-                  onChange={(e) => setWaterDensity(Number(e.target.value))}
-                  className="w-full accent-blue-400"
-                />
-              </div>
-              
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-white text-sm flex-1">🥬 Grass</span>
-                  <span className="text-white text-sm">{grassDensity}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={grassDensity}
-                  onChange={(e) => setGrassDensity(Number(e.target.value))}
-                  className="w-full accent-green-500"
-                />
-              </div>
+          <div className="bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg w-full max-w-md backdrop-blur-sm overflow-hidden">
+            <button
+              onClick={() => setSlidersOpen(!slidersOpen)}
+              className="w-full px-4 py-3 text-white font-semibold flex items-center justify-between hover:bg-white hover:bg-opacity-5 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <span style={{ fontSize: '20px' }}>⚙️</span>
+                Tile Density Settings
+              </span>
+              <span className="text-xl">{slidersOpen ? '▼' : '▶'}</span>
+            </button>
 
-              <button
-                onClick={generateRandomMap}
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors mt-4"
-              >
-                <span style={{ fontSize: '20px' }}>🪄</span>
-                Generate Map
-              </button>
-            </div>
+            {slidersOpen && (
+              <div className="px-4 pb-4 space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-white text-sm flex-1">🧱 Walls</span>
+                    <span className="text-white text-sm">{wallDensity}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={wallDensity}
+                    onChange={(e) => setWallDensity(Number(e.target.value))}
+                    className="w-full accent-amber-700"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-white text-sm flex-1">🌊 Water</span>
+                    <span className="text-white text-sm">{waterDensity}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={waterDensity}
+                    onChange={(e) => setWaterDensity(Number(e.target.value))}
+                    className="w-full accent-blue-400"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-white text-sm flex-1">🥬 Grass</span>
+                    <span className="text-white text-sm">{grassDensity}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={grassDensity}
+                    onChange={(e) => setGrassDensity(Number(e.target.value))}
+                    className="w-full accent-green-500"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
