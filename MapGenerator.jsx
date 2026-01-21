@@ -252,11 +252,11 @@ const MapGenerator = () => {
       L_med5: { pattern: [[1,1,0],[1,0,0],[1,0,0]], weight: 3 },
       L_med6: { pattern: [[0,1,1],[0,0,1],[0,0,1]], weight: 3 },
 
-      // T-shapes
-      T_med1: { pattern: [[1,1,1],[0,1,0]], weight: 3 },
-      T_med2: { pattern: [[1,0],[1,1],[1,0]], weight: 3 },
-      T_med3: { pattern: [[0,1,0],[1,1,1]], weight: 3 },
-      T_med4: { pattern: [[0,1],[1,1],[0,1]], weight: 3 },
+      // T-shapes (reduced weight to make rarer)
+      T_med1: { pattern: [[1,1,1],[0,1,0]], weight: 0.5 },
+      T_med2: { pattern: [[1,0],[1,1],[1,0]], weight: 0.5 },
+      T_med3: { pattern: [[0,1,0],[1,1,1]], weight: 0.5 },
+      T_med4: { pattern: [[0,1],[1,1],[0,1]], weight: 0.5 },
 
       // Diagonal and S-shapes
       diag1: { pattern: [[1,0],[1,1],[0,1]], weight: 3 },
@@ -268,8 +268,8 @@ const MapGenerator = () => {
       zigzag1: { pattern: [[1,0,0],[1,1,0],[0,1,1]], weight: 2 },
       zigzag2: { pattern: [[0,0,1],[0,1,1],[1,1,0]], weight: 2 },
 
-      // Plus-shapes
-      plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 3 },
+      // Plus-shapes (reduced weight to make rarer)
+      plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 0.5 },
 
       // U-shapes
       U_med1: { pattern: [[1,0,1],[1,1,1]], weight: 3 },
@@ -295,7 +295,7 @@ const MapGenerator = () => {
       box_hollow: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 2 },
       C_shape1: { pattern: [[1,1,1],[1,0,0],[1,1,1]], weight: 2 },
       C_shape2: { pattern: [[1,1,1],[0,0,1],[1,1,1]], weight: 2 },
-      T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 2 }
+      T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 0.5 }
     };
 
     const BUSH_TEMPLATES = {
@@ -2278,11 +2278,17 @@ const MapGenerator = () => {
   const detectAllOTGs = (tiles) => {
     const otgs = [];
 
+    // Helper: Check if a tile is an obstacle (only WALL or WATER, NOT grass)
+    const isObstacle = (tile) => tile === TERRAIN_TYPES.WALL || tile === TERRAIN_TYPES.WATER;
+
+    // Helper: Check if a tile is passable (null or grass)
+    const isPassable = (tile) => tile === null || tile === TERRAIN_TYPES.GRASS;
+
     // Scan every tile on the map
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       for (let col = 0; col < CANVAS_WIDTH; col++) {
-        // Only check empty tiles for OTG patterns
-        if (tiles[row][col] === null) {
+        // Only check passable tiles (empty or grass) for OTG patterns
+        if (isPassable(tiles[row][col])) {
           // Get all 8 neighbors (treat out-of-bounds as 'EDGE' for edge detection)
           const N  = (row > 0) ? tiles[row-1][col] : 'EDGE';
           const S  = (row < CANVAS_HEIGHT-1) ? tiles[row+1][col] : 'EDGE';
@@ -2293,10 +2299,10 @@ const MapGenerator = () => {
           const SE = (row < CANVAS_HEIGHT-1 && col < CANVAS_WIDTH-1) ? tiles[row+1][col+1] : 'EDGE';
           const SW = (row < CANVAS_HEIGHT-1 && col > 0) ? tiles[row+1][col-1] : 'EDGE';
 
-          // Count filled neighbors (EDGE counts as filled for border calculations)
-          const orthogonalFilled = [N, S, E, W].filter(t => t !== null && t !== 'EDGE').length;
-          const orthogonalFilledOrEdge = [N, S, E, W].filter(t => t !== null).length;
-          const allFilled = [N, S, E, W, NE, NW, SE, SW].filter(t => t !== null && t !== 'EDGE').length;
+          // Count obstacle neighbors (only WALL/WATER, EDGE counts as obstacle)
+          const orthogonalFilled = [N, S, E, W].filter(t => isObstacle(t) || t === 'EDGE').length;
+          const orthogonalFilledOrEdge = [N, S, E, W].filter(t => isObstacle(t) || t === 'EDGE').length;
+          const allFilled = [N, S, E, W, NE, NW, SE, SW].filter(t => isObstacle(t) || t === 'EDGE').length;
 
           // CASE 1: Classic orthogonal OTG (surrounded by 4 sides)
           if (orthogonalFilled === 4) {
@@ -2304,35 +2310,35 @@ const MapGenerator = () => {
             continue;
           }
 
-          // CASE 2: Diagonal squeeze patterns (most commonly missed)
-          // Pattern A: NW and SE filled, N and W empty/edge (diagonal trap)
-          if ((NW !== null && NW !== 'EDGE') && (SE !== null && SE !== 'EDGE')) {
-            if ((N === null || N === 'EDGE') && (W === null || W === 'EDGE')) {
+          // CASE 2: Diagonal squeeze patterns - check all diagonal pairs
+          // If opposite diagonal corners have obstacles, this tile may be unreachable
+
+          // NW-SE diagonal: obstacles on both corners
+          const hasNW_SE = (isObstacle(NW) || NW === 'EDGE') && (isObstacle(SE) || SE === 'EDGE');
+          // NE-SW diagonal: obstacles on both corners
+          const hasNE_SW = (isObstacle(NE) || NE === 'EDGE') && (isObstacle(SW) || SW === 'EDGE');
+
+          // If both diagonal pairs have obstacles, it's definitely an OTG
+          if (hasNW_SE && hasNE_SW) {
+            otgs.push({row, col, type: 'DIAGONAL_CROSS', severity: 'critical'});
+            continue;
+          }
+
+          // If one diagonal pair has obstacles and at least one orthogonal side is blocked
+          if (hasNW_SE) {
+            // Check if movement is blocked in key directions
+            if ((isObstacle(N) || N === 'EDGE') || (isObstacle(S) || S === 'EDGE') ||
+                (isObstacle(E) || E === 'EDGE') || (isObstacle(W) || W === 'EDGE')) {
               otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'critical'});
               continue;
             }
           }
 
-          // Pattern B: NE and SW filled, N and E empty/edge (diagonal trap)
-          if ((NE !== null && NE !== 'EDGE') && (SW !== null && SW !== 'EDGE')) {
-            if ((N === null || N === 'EDGE') && (E === null || E === 'EDGE')) {
+          if (hasNE_SW) {
+            // Check if movement is blocked in key directions
+            if ((isObstacle(N) || N === 'EDGE') || (isObstacle(S) || S === 'EDGE') ||
+                (isObstacle(E) || E === 'EDGE') || (isObstacle(W) || W === 'EDGE')) {
               otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'critical'});
-              continue;
-            }
-          }
-
-          // Pattern C: SE and NW filled from other direction
-          if ((NW !== null && NW !== 'EDGE') && (SE !== null && SE !== 'EDGE')) {
-            if ((S === null || S === 'EDGE') && (E === null || E === 'EDGE')) {
-              otgs.push({row, col, type: 'DIAGONAL_SE_NW', severity: 'critical'});
-              continue;
-            }
-          }
-
-          // Pattern D: SW and NE filled from other direction
-          if ((NE !== null && NE !== 'EDGE') && (SW !== null && SW !== 'EDGE')) {
-            if ((S === null || S === 'EDGE') && (W === null || W === 'EDGE')) {
-              otgs.push({row, col, type: 'DIAGONAL_SW_NE', severity: 'critical'});
               continue;
             }
           }
@@ -2348,15 +2354,15 @@ const MapGenerator = () => {
             if (col > 0) validOrthogonalNeighbors.push(W);
             if (col < CANVAS_WIDTH-1) validOrthogonalNeighbors.push(E);
 
-            const filledValidNeighbors = validOrthogonalNeighbors.filter(t => t !== null).length;
+            const filledValidNeighbors = validOrthogonalNeighbors.filter(t => isObstacle(t)).length;
 
-            // If at edge with all valid neighbors filled (edge acts as wall)
+            // If at edge with all valid neighbors being obstacles (edge acts as wall)
             if (filledValidNeighbors === validOrthogonalNeighbors.length && validOrthogonalNeighbors.length >= 2) {
               otgs.push({row, col, type: 'EDGE_TRAPPED', severity: 'critical'});
               continue;
             }
 
-            // Corner cases - only 2 valid neighbors but both filled
+            // Corner cases - only 2 valid neighbors but both are obstacles
             if (validOrthogonalNeighbors.length === 2 && filledValidNeighbors === 2) {
               otgs.push({row, col, type: 'CORNER_EDGE', severity: 'critical'});
               continue;
@@ -2372,37 +2378,19 @@ const MapGenerator = () => {
             }
           }
 
-          // CASE 5: 1-tile corridors and sandwich patterns (filled on opposite sides)
-          // Check for walls/water on BOTH opposite sides (sandwich pattern)
-          const isSandwichedNS = (N === TERRAIN_TYPES.WALL || N === TERRAIN_TYPES.WATER || N === 'EDGE') &&
-                                 (S === TERRAIN_TYPES.WALL || S === TERRAIN_TYPES.WATER || S === 'EDGE');
-          const isSandwichedEW = (E === TERRAIN_TYPES.WALL || E === TERRAIN_TYPES.WATER || E === 'EDGE') &&
-                                 (W === TERRAIN_TYPES.WALL || W === TERRAIN_TYPES.WATER || W === 'EDGE');
+          // CASE 5: 1-tile corridors and sandwich patterns (obstacles on opposite sides)
+          // Check for obstacles (WALL/WATER) on BOTH opposite sides (sandwich pattern)
+          const isSandwichedNS = (isObstacle(N) || N === 'EDGE') &&
+                                 (isObstacle(S) || S === 'EDGE');
+          const isSandwichedEW = (isObstacle(E) || E === 'EDGE') &&
+                                 (isObstacle(W) || W === 'EDGE');
 
           if (isSandwichedNS || isSandwichedEW) {
             // This is a true sandwich pattern - critical OTG
             otgs.push({row, col, type: 'SANDWICH_PATTERN', severity: 'critical'});
-          } else if ((N !== null && S !== null) || (E !== null && W !== null)) {
+          } else if ((isObstacle(N) && isObstacle(S)) || (isObstacle(E) && isObstacle(W))) {
             // General 1-tile corridor
             otgs.push({row, col, type: '1-tile corridor', severity: 'medium'});
-          }
-        }
-
-        // Type 2: 1-tile protrusions of different terrain
-        const tile = tiles[row][col];
-        if (tile !== null) {
-          const neighbors8 = [
-            [row-1,col], [row+1,col], [row,col-1], [row,col+1],
-            [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
-          ].filter(([r, c]) => isValid(r, c));
-
-          const sameTypeNeighbors = neighbors8.filter(([r, c]) => tiles[r][c] === tile);
-          const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
-            tiles[r][c] !== null && tiles[r][c] !== tile
-          );
-
-          if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
-            otgs.push({row, col, type: '1-tile protrusion', severity: 'low'});
           }
         }
       }
@@ -2529,64 +2517,50 @@ const MapGenerator = () => {
                 userSelect: 'none'
               }}
             >
-              {tiles.map((row, rowIndex) => (
-                <div key={rowIndex} className="flex">
-                  {row.map((tile, colIndex) => {
-                    const isEvenRow = rowIndex % 2 === 0;
-                    const isEvenCol = colIndex % 2 === 0;
-                    const isLightSquare = (isEvenRow && isEvenCol) || (!isEvenRow && !isEvenCol);
+              {(() => {
+                // Calculate OTGs once if debug mode is enabled
+                const otgSet = showOTGDebug ? new Set(
+                  detectAllOTGs(tiles).map(otg => `${otg.row},${otg.col}`)
+                ) : new Set();
 
-                    return (
-                      <div
-                        key={`${rowIndex}-${colIndex}`}
-                        onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
-                        onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
-                        onTouchStart={(e) => {
-                          e.preventDefault();
-                          handleMouseDown(rowIndex, colIndex);
-                        }}
-                        className="cursor-pointer touch-none"
-                        style={{
-                          width: TILE_SIZE + 'px',
-                          height: TILE_SIZE + 'px',
-                          backgroundColor: tile || (isLightSquare ? '#FFE4B3' : '#FFDAA3'),
-                          border: '0.5px solid rgba(0,0,0,0.05)'
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              ))}
+                return tiles.map((row, rowIndex) => (
+                  <div key={rowIndex} className="flex">
+                    {row.map((tile, colIndex) => {
+                      const isEvenRow = rowIndex % 2 === 0;
+                      const isEvenCol = colIndex % 2 === 0;
+                      const isLightSquare = (isEvenRow && isEvenCol) || (!isEvenRow && !isEvenCol);
+                      const isOTG = showOTGDebug && otgSet.has(`${rowIndex},${colIndex}`);
+
+                      return (
+                        <div
+                          key={`${rowIndex}-${colIndex}`}
+                          onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
+                          onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
+                          onTouchStart={(e) => {
+                            e.preventDefault();
+                            handleMouseDown(rowIndex, colIndex);
+                          }}
+                          className="cursor-pointer touch-none"
+                          style={{
+                            width: TILE_SIZE + 'px',
+                            height: TILE_SIZE + 'px',
+                            backgroundColor: tile || (isLightSquare ? '#FFE4B3' : '#FFDAA3'),
+                            border: '0.5px solid rgba(0,0,0,0.05)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px',
+                            position: 'relative'
+                          }}
+                        >
+                          {isOTG && <span style={{ position: 'absolute', zIndex: 10 }}>❌</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ));
+              })()}
             </div>
-
-            {/* OTG Debug Overlay */}
-            {showOTGDebug && (() => {
-              const otgs = detectAllOTGs(tiles);
-              return (
-                <div
-                  className="absolute top-0 left-0 pointer-events-none"
-                  style={{
-                    width: CANVAS_WIDTH * TILE_SIZE + 'px',
-                    height: CANVAS_HEIGHT * TILE_SIZE + 'px'
-                  }}
-                >
-                  {otgs.map((otg, index) => (
-                    <div
-                      key={index}
-                      style={{
-                        position: 'absolute',
-                        left: otg.col * TILE_SIZE + 'px',
-                        top: otg.row * TILE_SIZE + 'px',
-                        width: TILE_SIZE + 'px',
-                        height: TILE_SIZE + 'px',
-                        backgroundColor: 'rgba(255, 0, 0, 0.5)',
-                        border: '1px solid rgba(255, 0, 0, 0.8)'
-                      }}
-                    />
-                  ))}
-                </div>
-              );
-            })()}
           </div>
 
           <button
