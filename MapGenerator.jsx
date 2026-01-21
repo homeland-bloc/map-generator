@@ -863,7 +863,7 @@ const MapGenerator = () => {
       return otgs;
     };
 
-    // FIX 1: COMPREHENSIVE DIAGONAL OTG DETECTION - Detects ALL types of OTGs
+    // FIX 1: ENHANCED DIAGONAL OTG DETECTION - Detects ALL types of OTGs including edge cases
     const detectAllOTGs = (tiles) => {
       const otgs = [];
 
@@ -872,7 +872,7 @@ const MapGenerator = () => {
         for (let col = 0; col < CANVAS_WIDTH; col++) {
           // Only check empty tiles for OTG patterns
           if (tiles[row][col] === null) {
-            // Get all 8 neighbors (treat edges as 'EDGE')
+            // Get all 8 neighbors (treat out-of-bounds as 'EDGE' for edge detection)
             const N  = (row > 0) ? tiles[row-1][col] : 'EDGE';
             const S  = (row < CANVAS_HEIGHT-1) ? tiles[row+1][col] : 'EDGE';
             const E  = (col < CANVAS_WIDTH-1) ? tiles[row][col+1] : 'EDGE';
@@ -882,46 +882,83 @@ const MapGenerator = () => {
             const SE = (row < CANVAS_HEIGHT-1 && col < CANVAS_WIDTH-1) ? tiles[row+1][col+1] : 'EDGE';
             const SW = (row < CANVAS_HEIGHT-1 && col > 0) ? tiles[row+1][col-1] : 'EDGE';
 
-            // Count filled orthogonal neighbors (treat EDGE as filled for border tiles)
+            // Count filled neighbors (EDGE counts as filled for border calculations)
             const orthogonalFilled = [N, S, E, W].filter(t => t !== null && t !== 'EDGE').length;
             const orthogonalFilledOrEdge = [N, S, E, W].filter(t => t !== null).length;
+            const allFilled = [N, S, E, W, NE, NW, SE, SW].filter(t => t !== null && t !== 'EDGE').length;
 
-            // CASE 1: Classic OTG - surrounded by 4 orthogonal
+            // CASE 1: Classic orthogonal OTG (surrounded by 4 sides)
             if (orthogonalFilled === 4) {
-              otgs.push({row, col, type: 'ORTHOGONAL', severity: 'critical'});
+              otgs.push({row, col, type: 'ORTHOGONAL_SURROUNDED', severity: 'critical'});
               continue;
             }
 
-            // CASE 2: Edge OTG - at map edge with 3+ neighbors
+            // CASE 2: Diagonal squeeze patterns (most commonly missed)
+            // Pattern A: NW and SE filled, N and W empty/edge (diagonal trap)
+            if ((NW !== null && NW !== 'EDGE') && (SE !== null && SE !== 'EDGE')) {
+              if ((N === null || N === 'EDGE') && (W === null || W === 'EDGE')) {
+                otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'critical'});
+                continue;
+              }
+            }
+
+            // Pattern B: NE and SW filled, N and E empty/edge (diagonal trap)
+            if ((NE !== null && NE !== 'EDGE') && (SW !== null && SW !== 'EDGE')) {
+              if ((N === null || N === 'EDGE') && (E === null || E === 'EDGE')) {
+                otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'critical'});
+                continue;
+              }
+            }
+
+            // Pattern C: SE and NW filled from other direction
+            if ((NW !== null && NW !== 'EDGE') && (SE !== null && SE !== 'EDGE')) {
+              if ((S === null || S === 'EDGE') && (E === null || E === 'EDGE')) {
+                otgs.push({row, col, type: 'DIAGONAL_SE_NW', severity: 'critical'});
+                continue;
+              }
+            }
+
+            // Pattern D: SW and NE filled from other direction
+            if ((NE !== null && NE !== 'EDGE') && (SW !== null && SW !== 'EDGE')) {
+              if ((S === null || S === 'EDGE') && (W === null || W === 'EDGE')) {
+                otgs.push({row, col, type: 'DIAGONAL_SW_NE', severity: 'critical'});
+                continue;
+              }
+            }
+
+            // CASE 3: Edge OTGs (trapped against map boundary)
             const isAtEdge = (row === 0 || row === CANVAS_HEIGHT-1 || col === 0 || col === CANVAS_WIDTH-1);
-            if (isAtEdge && orthogonalFilledOrEdge >= 3) {
-              otgs.push({row, col, type: 'EDGE', severity: 'critical'});
-              continue;
+
+            if (isAtEdge) {
+              // Count only the valid neighbors (not out-of-bounds)
+              const validOrthogonalNeighbors = [];
+              if (row > 0) validOrthogonalNeighbors.push(N);
+              if (row < CANVAS_HEIGHT-1) validOrthogonalNeighbors.push(S);
+              if (col > 0) validOrthogonalNeighbors.push(W);
+              if (col < CANVAS_WIDTH-1) validOrthogonalNeighbors.push(E);
+
+              const filledValidNeighbors = validOrthogonalNeighbors.filter(t => t !== null).length;
+
+              // If at edge with all valid neighbors filled (edge acts as wall)
+              if (filledValidNeighbors === validOrthogonalNeighbors.length && validOrthogonalNeighbors.length >= 2) {
+                otgs.push({row, col, type: 'EDGE_TRAPPED', severity: 'critical'});
+                continue;
+              }
+
+              // Corner cases - only 2 valid neighbors but both filled
+              if (validOrthogonalNeighbors.length === 2 && filledValidNeighbors === 2) {
+                otgs.push({row, col, type: 'CORNER_EDGE', severity: 'critical'});
+                continue;
+              }
             }
 
-            // CASE 3: Diagonal squeeze OTG
-            // Pattern: NW and SE both filled, N and W both empty (or S and E both empty)
-            if (NW !== null && NW !== 'EDGE' && SE !== null && SE !== 'EDGE' && N === null && W === null) {
-              otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'high'});
-              continue;
-            }
-
-            if (NE !== null && NE !== 'EDGE' && SW !== null && SW !== 'EDGE' && N === null && E === null) {
-              otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'high'});
-              continue;
-            }
-
-            // CASE 4: Corner touch trap - opposite diagonal corners filled, all orthogonals empty
-            if ((NW !== null && NW !== 'EDGE' && SE !== null && SE !== 'EDGE') &&
-                N === null && W === null && S === null && E === null) {
-              otgs.push({row, col, type: 'CORNER_TRAP', severity: 'high'});
-              continue;
-            }
-
-            if ((NE !== null && NE !== 'EDGE' && SW !== null && SW !== 'EDGE') &&
-                N === null && E === null && S === null && W === null) {
-              otgs.push({row, col, type: 'CORNER_TRAP', severity: 'high'});
-              continue;
+            // CASE 4: 3-sided trap with diagonal reinforcement
+            if (orthogonalFilled === 3) {
+              // Check if the diagonals also make this a complete trap
+              if (allFilled >= 6) { // 3 orthogonal + 3+ diagonal
+                otgs.push({row, col, type: 'THREE_SIDED_TRAP', severity: 'high'});
+                continue;
+              }
             }
 
             // CASE 5: 1-tile corridors (filled on opposite sides)
@@ -1288,10 +1325,10 @@ const MapGenerator = () => {
       return true;
     };
 
-    // FIX 2: AGGRESSIVE OTG FIXING WITH STRUCTURE REMOVAL (5 iterations)
+    // FIX 2: ENHANCED OTG FIXING WITH MULTIPLE PASSES (10 iterations with detailed logging)
     const fixAllRemainingOTGs = (tiles) => {
-      console.log('\n--- Aggressive OTG Fixing (5 iterations) ---');
-      const maxIterations = 5;
+      console.log('\n--- Enhanced OTG Fixing (up to 10 iterations) ---');
+      const maxIterations = 10;
       let totalOTGsFixed = 0;
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -1299,45 +1336,48 @@ const MapGenerator = () => {
         const criticalOTGs = otgs.filter(o => o.severity === 'critical' || o.severity === 'high');
 
         if (criticalOTGs.length === 0) {
-          console.log(`  Iteration ${iteration + 1}: No critical/high OTGs found - map is clean!`);
+          console.log(`✓ OTG Fix Pass ${iteration + 1}: No OTGs found - map is clean!`);
           break;
         }
 
-        console.log(`  Iteration ${iteration + 1}: Found ${criticalOTGs.length} critical/high OTGs, fixing...`);
+        console.log(`⚠ OTG Fix Pass ${iteration + 1}: Found ${criticalOTGs.length} OTGs`);
         let iterationFixes = 0;
 
         for (const otg of criticalOTGs) {
-          // Find adjacent filled tiles to remove
+          console.log(`  - Fixing ${otg.type} OTG at (${otg.row},${otg.col})`);
+
+          // Find adjacent filled tiles to remove (including diagonals for all OTGs)
           const neighbors = [
             {pos: [otg.row-1, otg.col], exists: otg.row > 0},
             {pos: [otg.row+1, otg.col], exists: otg.row < CANVAS_HEIGHT-1},
             {pos: [otg.row, otg.col-1], exists: otg.col > 0},
-            {pos: [otg.row, otg.col+1], exists: otg.col < CANVAS_WIDTH-1}
+            {pos: [otg.row, otg.col+1], exists: otg.col < CANVAS_WIDTH-1},
+            {pos: [otg.row-1, otg.col-1], exists: otg.row > 0 && otg.col > 0},
+            {pos: [otg.row-1, otg.col+1], exists: otg.row > 0 && otg.col < CANVAS_WIDTH-1},
+            {pos: [otg.row+1, otg.col-1], exists: otg.row < CANVAS_HEIGHT-1 && otg.col > 0},
+            {pos: [otg.row+1, otg.col+1], exists: otg.row < CANVAS_HEIGHT-1 && otg.col < CANVAS_WIDTH-1}
           ];
 
-          // For diagonal OTGs, also check diagonal neighbors
-          if (otg.type.includes('DIAGONAL') || otg.type === 'CORNER_TRAP') {
-            neighbors.push(
-              {pos: [otg.row-1, otg.col-1], exists: otg.row > 0 && otg.col > 0},
-              {pos: [otg.row-1, otg.col+1], exists: otg.row > 0 && otg.col < CANVAS_WIDTH-1},
-              {pos: [otg.row+1, otg.col-1], exists: otg.row < CANVAS_HEIGHT-1 && otg.col > 0},
-              {pos: [otg.row+1, otg.col+1], exists: otg.row < CANVAS_HEIGHT-1 && otg.col < CANVAS_WIDTH-1}
-            );
+          // Find filled neighbors
+          const filledNeighbors = neighbors.filter(n =>
+            n.exists && tiles[n.pos[0]][n.pos[1]] !== null
+          );
+
+          if (filledNeighbors.length === 0) {
+            console.log('    ⚠ No neighbors to remove - skipping');
+            continue;
           }
 
           // Find smallest adjacent structure
           let smallestNeighbor = null;
           let smallestSize = Infinity;
 
-          for (const neighbor of neighbors) {
-            if (!neighbor.exists) continue;
+          for (const neighbor of filledNeighbors) {
             const [nRow, nCol] = neighbor.pos;
-            if (tiles[nRow][nCol] !== null) {
-              const structureSize = floodFillSize(tiles, nRow, nCol, tiles[nRow][nCol]);
-              if (structureSize < smallestSize) {
-                smallestSize = structureSize;
-                smallestNeighbor = neighbor.pos;
-              }
+            const structureSize = floodFillSize(tiles, nRow, nCol, tiles[nRow][nCol]);
+            if (structureSize < smallestSize) {
+              smallestSize = structureSize;
+              smallestNeighbor = neighbor.pos;
             }
           }
 
@@ -1347,17 +1387,22 @@ const MapGenerator = () => {
             tiles[nRow][nCol] = null;
             iterationFixes++;
             totalOTGsFixed++;
+            console.log(`    ✓ Removed tile from structure at (${nRow},${nCol})`);
           }
         }
 
-        console.log(`  Iteration ${iteration + 1}: Fixed ${iterationFixes} OTGs`);
+        console.log(`  Pass ${iteration + 1}: Fixed ${iterationFixes} OTGs`);
 
         if (iteration === maxIterations - 1 && criticalOTGs.length > 0) {
-          console.warn('  Max OTG fix iterations reached - some OTGs may remain');
+          console.error('⚠ WARNING: Max OTG iterations reached - some OTGs may remain');
         }
       }
 
-      console.log(`  Total OTGs fixed: ${totalOTGsFixed}`);
+      if (totalOTGsFixed > 0) {
+        console.log(`✓ All OTGs fixed successfully! Total fixes: ${totalOTGsFixed}`);
+      } else {
+        console.log('✓ No OTGs needed fixing');
+      }
       return totalOTGsFixed;
     };
 
@@ -1521,6 +1566,23 @@ const MapGenerator = () => {
       if (targetCount === 0) continue;
 
       console.log(`\n  Placing ${name}...`);
+
+      // FIX 3: WATER PLACEMENT DIAGNOSTICS
+      if (type === TERRAIN_TYPES.WATER) {
+        console.log('=== Water Placement Debug ===');
+        console.log(`Water density setting: ${waterDensity}%`);
+        console.log(`Target water tiles: ${targetCount}`);
+
+        if (targetCount < 8) {
+          console.warn('⚠ Water density too low - minimum 8 tiles needed for placement');
+          console.warn('Suggestion: Increase water slider to at least 5%');
+        }
+
+        const waterTemplatesList = Object.keys(templates);
+        console.log(`Available water templates: ${waterTemplatesList.length}`);
+        console.log(`Template names: ${waterTemplatesList.join(', ')}`);
+      }
+
       let currentTileCount = 0;
       let attemptCount = 0;
       const maxAttempts = 5000;
@@ -1614,12 +1676,18 @@ const MapGenerator = () => {
         // Track water structure count
         if (type === TERRAIN_TYPES.WATER) {
           waterStructureCount++;
+          console.log(`✓ Placed water structure #${waterStructureCount} at (${row},${col}) - ${tilesPlaced} tiles`);
         }
       }
 
       console.log(`  ${name}: placed ${currentTileCount}/${targetCount} tiles in ${attemptCount} attempts`);
       if (type === TERRAIN_TYPES.WATER) {
-        console.log(`  Water structures placed: ${waterStructureCount} (max: ${maxWaterStructures})`);
+        console.log(`Final water placement: ${currentTileCount} tiles in ${waterStructureCount} structures`);
+        console.log(`Placement attempts: ${attemptCount}`);
+
+        if (waterStructureCount === 0) {
+          console.warn('⚠ WARNING: No water structures placed! Check validation rules.');
+        }
       }
 
       // FIX 2: After bush placement, merge nearby bushes
@@ -1640,52 +1708,86 @@ const MapGenerator = () => {
     // Step 3: Enforce symmetry as final step (force-correct any asymmetries)
     const asymmetriesFixed = enforceSymmetry(placedTiles);
 
-    // ===== PHASE 7: FINAL VALIDATION =====
-    console.log('\n--- PHASE 7: Final Validation ---');
+    // FIX 4: COMPREHENSIVE FINAL VALIDATION
+    const finalValidation = (tiles) => {
+      console.log('\n=== Final Validation ===');
 
-    // Scan for remaining OTGs (should be 0)
-    let otgCount = 0;
+      // Check for OTGs using enhanced detection
+      const finalOTGs = detectAllOTGs(tiles);
+      const criticalOTGs = finalOTGs.filter(o => o.severity === 'critical' || o.severity === 'high');
 
-    // Check for 1-tile gaps surrounded by filled
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        if (placedTiles[row][col] === null) {
-          const neighbors4 = [[row-1,col], [row+1,col], [row,col-1], [row,col+1]]
-            .filter(([r, c]) => isValid(r, c));
+      if (criticalOTGs.length > 0) {
+        console.error(`❌ CRITICAL: ${criticalOTGs.length} OTGs remain after fixes!`);
+        criticalOTGs.forEach(otg => {
+          console.error(`  - ${otg.type} at (${otg.row},${otg.col})`);
+        });
+      } else {
+        console.log('✓ OTG Check: PASSED (0 found)');
+      }
 
-          if (neighbors4.length === 4) {
-            const filledNeighbors = neighbors4.filter(([r, c]) => placedTiles[r][c] !== null);
-            if (filledNeighbors.length === 4) {
-              console.log(`  ERROR: 1-tile gap at (${row}, ${col})`);
-              otgCount++;
+      // Check symmetry
+      let asymmetries = 0;
+      if (mirrorVertical) {
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < Math.floor(CANVAS_WIDTH / 2); col++) {
+            const mirrorCol = CANVAS_WIDTH - 1 - col;
+            if (tiles[row][col] !== tiles[row][mirrorCol]) {
+              asymmetries++;
             }
           }
         }
       }
-    }
 
-    // Check for 1-tile protrusions of different terrain
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        const tile = placedTiles[row][col];
-        if (tile !== null) {
-          const neighbors8 = [
-            [row-1,col], [row+1,col], [row,col-1], [row,col+1],
-            [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
-          ].filter(([r, c]) => isValid(r, c));
-
-          const sameTypeNeighbors = neighbors8.filter(([r, c]) => placedTiles[r][c] === tile);
-          const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
-            placedTiles[r][c] !== null && placedTiles[r][c] !== tile
-          );
-
-          if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
-            console.log(`  ERROR: 1-tile protrusion at (${row}, ${col})`);
-            otgCount++;
+      if (mirrorHorizontal) {
+        for (let row = 0; row < Math.floor(CANVAS_HEIGHT / 2); row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            const mirrorRow = CANVAS_HEIGHT - 1 - row;
+            if (tiles[row][col] !== tiles[mirrorRow][col]) {
+              asymmetries++;
+            }
           }
         }
       }
-    }
+
+      if (asymmetries > 0) {
+        console.error(`❌ Symmetry Check: FAILED (${asymmetries} asymmetries)`);
+      } else if (mirrorVertical || mirrorHorizontal) {
+        console.log('✓ Symmetry Check: PASSED');
+      } else {
+        console.log('✓ Symmetry Check: N/A (no mirroring enabled)');
+      }
+
+      // Count structures by type
+      const wallTiles = tiles.flat().filter(t => t === TERRAIN_TYPES.WALL).length;
+      const bushTiles = tiles.flat().filter(t => t === TERRAIN_TYPES.GRASS).length;
+      const waterTiles = tiles.flat().filter(t => t === TERRAIN_TYPES.WATER).length;
+      const wallStructures = placedStructures.filter(s => s.type === 'WALL').length;
+      const bushStructures = placedStructures.filter(s => s.type === 'BUSH').length;
+      const waterStructures = placedStructures.filter(s => s.type === 'WATER').length;
+
+      console.log('Structure counts:');
+      console.log(`  - Walls: ${wallStructures} structures (${wallTiles} tiles)`);
+      console.log(`  - Bushes: ${bushStructures} structures (${bushTiles} tiles)`);
+      console.log(`  - Water: ${waterStructures} structures (${waterTiles} tiles)`);
+
+      if (waterStructures === 0 && targetWater > 0) {
+        console.warn('⚠ No water structures on map - check water placement logic');
+      }
+
+      console.log('=== Validation Complete ===');
+
+      return {
+        otgsFound: criticalOTGs.length,
+        asymmetries: asymmetries,
+        passed: (criticalOTGs.length === 0 && asymmetries === 0)
+      };
+    };
+
+    // Run final validation
+    const validationResult = finalValidation(placedTiles);
+
+    // ===== PHASE 7: FINAL STATISTICS =====
+    console.log('\n--- PHASE 7: Final Statistics ---');
 
     // 2. Log statistics
     console.log('\n=== Map Generation Complete ===');
@@ -1742,8 +1844,8 @@ const MapGenerator = () => {
     console.log(`  Edge tiles removed: ${edgeTilesRemoved}`);
     console.log(`  OTGs fixed: ${totalOTGsFixed}`);
     console.log(`  Asymmetries corrected: ${asymmetriesFixed}`);
-    console.log(`  Final OTGs found: ${otgCount} (should be 0)`);
-    console.log(`  Final validation: ${otgCount === 0 && asymmetriesFixed === 0 ? 'PASSED' : 'CHECK NEEDED'}`);
+    console.log(`  Final OTGs found: ${validationResult.otgsFound} (should be 0)`);
+    console.log(`  Final validation: ${validationResult.passed ? '✓ PASSED' : '❌ CHECK NEEDED'}`);
 
     // CRITICAL VALIDATION: Check structure sizes
     let structureSizeViolations = 0;
