@@ -35,6 +35,7 @@ const MapGenerator = () => {
   const [mirrorDiagonal, setMirrorDiagonal] = useState(false);
   const [slidersOpen, setSlidersOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [mapCode, setMapCode] = useState('');
   const canvasRef = useRef(null);
 
   const handleTileClick = (row, col) => {
@@ -89,6 +90,100 @@ const MapGenerator = () => {
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, []);
+
+  // Map Code conversion functions
+  const tilesToMapCode = (tiles) => {
+    let code = '';
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        const tile = tiles[row][col];
+        if (tile === TERRAIN_TYPES.WALL) {
+          code += '⬛';
+        } else if (tile === TERRAIN_TYPES.WATER) {
+          code += '🟦';
+        } else if (tile === TERRAIN_TYPES.GRASS) {
+          code += '🟩';
+        } else {
+          code += '⬜';
+        }
+      }
+      code += '\n';
+    }
+    return code.trim();
+  };
+
+  const mapCodeToTiles = (code) => {
+    const lines = code.trim().split('\n');
+    if (lines.length !== CANVAS_HEIGHT) {
+      alert(`Invalid map code: Expected ${CANVAS_HEIGHT} rows, got ${lines.length}`);
+      return null;
+    }
+
+    const newTiles = Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null));
+
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      const line = lines[row];
+      // Count emojis properly (some emojis are 2 characters)
+      const chars = Array.from(line);
+
+      if (chars.length !== CANVAS_WIDTH) {
+        alert(`Invalid map code: Row ${row + 1} has ${chars.length} characters, expected ${CANVAS_WIDTH}`);
+        return null;
+      }
+
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        const char = chars[col];
+        if (char === '⬛') {
+          newTiles[row][col] = TERRAIN_TYPES.WALL;
+        } else if (char === '🟦') {
+          newTiles[row][col] = TERRAIN_TYPES.WATER;
+        } else if (char === '🟩') {
+          newTiles[row][col] = TERRAIN_TYPES.GRASS;
+        } else if (char === '⬜') {
+          newTiles[row][col] = null;
+        } else {
+          alert(`Invalid character "${char}" at row ${row + 1}, col ${col + 1}`);
+          return null;
+        }
+      }
+    }
+
+    return newTiles;
+  };
+
+  const copyMapCode = () => {
+    if (!mapCode) {
+      alert('No map code to copy. Generate a map first!');
+      return;
+    }
+    navigator.clipboard.writeText(mapCode).then(() => {
+      alert('Map code copied to clipboard!');
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+      alert('Failed to copy map code. Please copy manually.');
+    });
+  };
+
+  const importMapCode = () => {
+    const code = document.getElementById('map-code-textarea').value;
+    if (!code.trim()) {
+      alert('Please paste a map code first!');
+      return;
+    }
+
+    const newTiles = mapCodeToTiles(code);
+    if (newTiles) {
+      setTiles(newTiles);
+      setMapCode(code.trim());
+      alert('Map imported successfully!');
+    }
+  };
+
+  // Update map code whenever tiles change
+  useEffect(() => {
+    const code = tilesToMapCode(tiles);
+    setMapCode(code);
+  }, [tiles]);
 
   const generateRandomMap = () => {
     console.log('=== STARTING TEMPLATE-BASED MAP GENERATION ===');
@@ -1469,6 +1564,128 @@ const MapGenerator = () => {
       return totalOTGsFixed;
     };
 
+    // AGGRESSIVE OTG CLEANUP - Targeted removal of stubborn OTGs
+    const aggressiveOTGCleanup = (tiles) => {
+      console.log('\n--- Aggressive OTG Cleanup (2-3 iterations) ---');
+      const maxIterations = 3;
+      let totalRemoved = 0;
+
+      for (let iteration = 0; iteration < maxIterations; iteration++) {
+        const otgs = detectAllOTGs(tiles);
+
+        // Focus on 1-tile gaps surrounded by terrain on 3-4 orthogonal sides
+        const targetOTGs = otgs.filter(otg => {
+          const row = otg.row;
+          const col = otg.col;
+
+          // Count orthogonal neighbors that are filled (wall/water)
+          const neighbors = [
+            {pos: [row-1, col], exists: row > 0},           // North
+            {pos: [row+1, col], exists: row < CANVAS_HEIGHT-1}, // South
+            {pos: [row, col-1], exists: col > 0},           // West
+            {pos: [row, col+1], exists: col < CANVAS_WIDTH-1}   // East
+          ];
+
+          const filledOrthogonal = neighbors.filter(n =>
+            n.exists && tiles[n.pos[0]][n.pos[1]] !== null
+          ).length;
+
+          // Target OTGs with 3-4 orthogonal neighbors filled
+          return filledOrthogonal >= 3;
+        });
+
+        if (targetOTGs.length === 0) {
+          console.log(`✓ Aggressive Cleanup Pass ${iteration + 1}: No target OTGs found`);
+          break;
+        }
+
+        console.log(`⚠ Aggressive Cleanup Pass ${iteration + 1}: Found ${targetOTGs.length} target OTGs`);
+        let iterationRemoved = 0;
+
+        // Sort OTGs: edge-adjacent first, then interior
+        const sortedOTGs = targetOTGs.sort((a, b) => {
+          const aIsEdge = a.row === 0 || a.row === CANVAS_HEIGHT-1 || a.col === 0 || a.col === CANVAS_WIDTH-1;
+          const bIsEdge = b.row === 0 || b.row === CANVAS_HEIGHT-1 || b.col === 0 || b.col === CANVAS_WIDTH-1;
+
+          if (aIsEdge && !bIsEdge) return -1;
+          if (!aIsEdge && bIsEdge) return 1;
+          return 0;
+        });
+
+        for (const otg of sortedOTGs) {
+          console.log(`  - Processing OTG at (${otg.row},${otg.col})`);
+
+          // Find adjacent wall/water tiles (orthogonal only)
+          const neighbors = [
+            {pos: [otg.row-1, otg.col], exists: otg.row > 0, isEdge: otg.row === 1},
+            {pos: [otg.row+1, otg.col], exists: otg.row < CANVAS_HEIGHT-1, isEdge: otg.row === CANVAS_HEIGHT-2},
+            {pos: [otg.row, otg.col-1], exists: otg.col > 0, isEdge: otg.col === 1},
+            {pos: [otg.row, otg.col+1], exists: otg.col < CANVAS_WIDTH-1, isEdge: otg.col === CANVAS_WIDTH-2}
+          ];
+
+          // Find filled neighbors (wall or water only, not grass)
+          const filledNeighbors = neighbors.filter(n =>
+            n.exists && tiles[n.pos[0]][n.pos[1]] !== null && tiles[n.pos[0]][n.pos[1]] !== TERRAIN_TYPES.GRASS
+          );
+
+          if (filledNeighbors.length === 0) {
+            console.log('    ⚠ No wall/water neighbors to remove - skipping');
+            continue;
+          }
+
+          // Prioritize edge-adjacent tiles if this is an edge OTG
+          const edgeNeighbors = filledNeighbors.filter(n => n.isEdge);
+          const candidateNeighbors = edgeNeighbors.length > 0 ? edgeNeighbors : filledNeighbors;
+
+          // Find the smallest connected structure among candidates
+          let smallestNeighbor = null;
+          let smallestSize = Infinity;
+
+          for (const neighbor of candidateNeighbors) {
+            const [nRow, nCol] = neighbor.pos;
+            const terrainType = tiles[nRow][nCol];
+            const structureSize = floodFillSize(tiles, nRow, nCol, terrainType);
+
+            if (structureSize < smallestSize) {
+              smallestSize = structureSize;
+              smallestNeighbor = neighbor.pos;
+            }
+          }
+
+          // Remove the chosen tile
+          if (smallestNeighbor) {
+            const [nRow, nCol] = smallestNeighbor;
+            const terrainType = tiles[nRow][nCol];
+            tiles[nRow][nCol] = null;
+            iterationRemoved++;
+            totalRemoved++;
+            console.log(`    ✓ Removed ${terrainType === TERRAIN_TYPES.WALL ? 'wall' : 'water'} tile at (${nRow},${nCol}) (structure size: ${smallestSize})`);
+          }
+        }
+
+        console.log(`  Pass ${iteration + 1}: Removed ${iterationRemoved} tiles`);
+
+        // Re-run symmetry enforcement after this cleanup iteration if mirroring is enabled
+        if ((mirrorVertical || mirrorHorizontal || mirrorDiagonal) && iterationRemoved > 0) {
+          console.log('  → Re-enforcing symmetry after cleanup...');
+          enforceSymmetry(tiles);
+        }
+
+        // Break early if no tiles were removed this iteration
+        if (iterationRemoved === 0) {
+          console.log('✓ No more tiles removed - cleanup complete');
+          break;
+        }
+      }
+
+      if (totalRemoved > 0) {
+        console.log(`✓ Aggressive cleanup complete! Total tiles removed: ${totalRemoved}`);
+      } else {
+        console.log('✓ No aggressive cleanup needed');
+      }
+      return totalRemoved;
+    };
+
     // FIX 3: EDGE BUFFER ENFORCEMENT - Prevent structures from creating traps along map edges
     const cleanMapEdges = (tiles) => {
       console.log('\n--- Cleaning Map Edges ---');
@@ -1812,6 +2029,9 @@ const MapGenerator = () => {
 
     // Step 2: Fix all remaining OTGs with 5 iterations
     const totalOTGsFixed = fixAllRemainingOTGs(placedTiles);
+
+    // Step 2.5: Aggressive OTG cleanup for stubborn gaps
+    const aggressiveRemoved = aggressiveOTGCleanup(placedTiles);
 
     // Step 3: Fill edge gaps (after OTG fixes, before symmetry)
     const edgeGapsFilled = fillEdgeGaps(placedTiles);
@@ -2288,6 +2508,40 @@ const MapGenerator = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Map Code Export/Import Section */}
+          <div className="bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg w-full max-w-md backdrop-blur-sm p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span style={{ fontSize: '20px' }}>📋</span>
+              <h3 className="text-white font-semibold">Map Code</h3>
+            </div>
+
+            <textarea
+              id="map-code-textarea"
+              value={mapCode}
+              onChange={(e) => setMapCode(e.target.value)}
+              className="w-full h-24 p-2 rounded bg-gray-900 text-white text-xs border border-purple-400 border-opacity-30 resize-none overflow-auto"
+              style={{ fontFamily: 'monospace' }}
+              placeholder="Map code will appear here after generation..."
+            />
+
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={copyMapCode}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                <span style={{ fontSize: '16px' }}>📋</span>
+                Copy Map Code
+              </button>
+              <button
+                onClick={importMapCode}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                <span style={{ fontSize: '16px' }}>📥</span>
+                Import Map Code
+              </button>
+            </div>
           </div>
         </div>
 
