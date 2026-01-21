@@ -2299,98 +2299,176 @@ const MapGenerator = () => {
           const SE = (row < CANVAS_HEIGHT-1 && col < CANVAS_WIDTH-1) ? tiles[row+1][col+1] : 'EDGE';
           const SW = (row < CANVAS_HEIGHT-1 && col > 0) ? tiles[row+1][col-1] : 'EDGE';
 
-          // Count obstacle neighbors (only WALL/WATER, EDGE counts as obstacle)
-          const orthogonalFilled = [N, S, E, W].filter(t => isObstacle(t) || t === 'EDGE').length;
-          const orthogonalFilledOrEdge = [N, S, E, W].filter(t => isObstacle(t) || t === 'EDGE').length;
-          const allFilled = [N, S, E, W, NE, NW, SE, SW].filter(t => isObstacle(t) || t === 'EDGE').length;
+          // Count obstacle neighbors (only WALL/WATER, NOT counting EDGE)
+          const orthogonalFilled = [N, S, E, W].filter(t => isObstacle(t)).length;
+          const diagonalFilled = [NE, NW, SE, SW].filter(t => isObstacle(t)).length;
+          const allFilled = orthogonalFilled + diagonalFilled;
 
-          // CASE 1: Classic orthogonal OTG (surrounded by 4 sides)
+          // CASE 1: Classic orthogonal OTG (surrounded by 4 or 3 sides)
           if (orthogonalFilled === 4) {
             otgs.push({row, col, type: 'ORTHOGONAL_SURROUNDED', severity: 'critical'});
             continue;
           }
 
-          // CASE 2: Diagonal squeeze patterns - check all diagonal pairs
-          // If opposite diagonal corners have obstacles, this tile may be unreachable
-
-          // NW-SE diagonal: obstacles on both corners
-          const hasNW_SE = (isObstacle(NW) || NW === 'EDGE') && (isObstacle(SE) || SE === 'EDGE');
-          // NE-SW diagonal: obstacles on both corners
-          const hasNE_SW = (isObstacle(NE) || NE === 'EDGE') && (isObstacle(SW) || SW === 'EDGE');
-
-          // If both diagonal pairs have obstacles, it's definitely an OTG
-          if (hasNW_SE && hasNE_SW) {
-            otgs.push({row, col, type: 'DIAGONAL_CROSS', severity: 'critical'});
+          // 3 orthogonal obstacles is also very likely an OTG
+          if (orthogonalFilled === 3) {
+            otgs.push({row, col, type: 'THREE_SIDED', severity: 'critical'});
             continue;
           }
 
-          // If one diagonal pair has obstacles and at least one orthogonal side is blocked
-          if (hasNW_SE) {
-            // Check if movement is blocked in key directions
-            if ((isObstacle(N) || N === 'EDGE') || (isObstacle(S) || S === 'EDGE') ||
-                (isObstacle(E) || E === 'EDGE') || (isObstacle(W) || W === 'EDGE')) {
-              otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'critical'});
+          // 2 orthogonal obstacles can create an OTG if they're on opposite sides or adjacent with diagonal support
+          if (orthogonalFilled === 2) {
+            // Check for opposite sides (sandwich pattern)
+            const northSouthBlocked = isObstacle(N) && isObstacle(S);
+            const westEastBlocked = isObstacle(W) && isObstacle(E);
+
+            if (northSouthBlocked || westEastBlocked) {
+              otgs.push({row, col, type: 'TWO_SIDED_OPPOSITE', severity: 'critical'});
               continue;
+            }
+
+            // Check for adjacent sides with diagonal obstacles reinforcing the trap
+            if (isObstacle(N) && isObstacle(W)) {
+              if (isObstacle(NW)) {
+                otgs.push({row, col, type: 'CORNER_NW', severity: 'critical'});
+                continue;
+              }
+            }
+            if (isObstacle(N) && isObstacle(E)) {
+              if (isObstacle(NE)) {
+                otgs.push({row, col, type: 'CORNER_NE', severity: 'critical'});
+                continue;
+              }
+            }
+            if (isObstacle(S) && isObstacle(W)) {
+              if (isObstacle(SW)) {
+                otgs.push({row, col, type: 'CORNER_SW', severity: 'critical'});
+                continue;
+              }
+            }
+            if (isObstacle(S) && isObstacle(E)) {
+              if (isObstacle(SE)) {
+                otgs.push({row, col, type: 'CORNER_SE', severity: 'critical'});
+                continue;
+              }
             }
           }
 
-          if (hasNE_SW) {
-            // Check if movement is blocked in key directions
-            if ((isObstacle(N) || N === 'EDGE') || (isObstacle(S) || S === 'EDGE') ||
-                (isObstacle(E) || E === 'EDGE') || (isObstacle(W) || W === 'EDGE')) {
-              otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'critical'});
+          // CASE 2: Diagonal squeeze patterns
+          // Check if this tile is trapped by diagonal obstacles
+
+          // If 2 or more diagonal obstacles, check if they form a squeeze pattern
+          if (diagonalFilled >= 2) {
+            // Check opposite diagonal pairs
+            const hasNW_SE = isObstacle(NW) && isObstacle(SE);
+            const hasNE_SW = isObstacle(NE) && isObstacle(SW);
+
+            // Both diagonal pairs blocked = cross pattern, definitely OTG
+            if (hasNW_SE && hasNE_SW) {
+              otgs.push({row, col, type: 'DIAGONAL_CROSS', severity: 'critical'});
               continue;
+            }
+
+            // One diagonal pair blocked = potential OTG
+            // Check if the orthogonal exits are also blocked
+            if (hasNW_SE) {
+              // NW-SE diagonal blocked, check if N/S or W/E are also blocked
+              const northSouthBlocked = isObstacle(N) && isObstacle(S);
+              const westEastBlocked = isObstacle(W) && isObstacle(E);
+
+              if (northSouthBlocked || westEastBlocked) {
+                otgs.push({row, col, type: 'DIAGONAL_NW_SE_SQUEEZE', severity: 'critical'});
+                continue;
+              }
+            }
+
+            if (hasNE_SW) {
+              // NE-SW diagonal blocked, check if N/S or W/E are also blocked
+              const northSouthBlocked = isObstacle(N) && isObstacle(S);
+              const westEastBlocked = isObstacle(W) && isObstacle(E);
+
+              if (northSouthBlocked || westEastBlocked) {
+                otgs.push({row, col, type: 'DIAGONAL_NE_SW_SQUEEZE', severity: 'critical'});
+                continue;
+              }
+            }
+
+            // Check for L-shaped diagonal traps (adjacent diagonals)
+            // Example: obstacles at NW and NE, with N also blocked
+            if (isObstacle(NW) && isObstacle(NE)) {
+              if (isObstacle(N)) {
+                otgs.push({row, col, type: 'DIAGONAL_L_TRAP', severity: 'critical'});
+                continue;
+              }
+            }
+            if (isObstacle(SE) && isObstacle(SW)) {
+              if (isObstacle(S)) {
+                otgs.push({row, col, type: 'DIAGONAL_L_TRAP', severity: 'critical'});
+                continue;
+              }
+            }
+            if (isObstacle(NW) && isObstacle(SW)) {
+              if (isObstacle(W)) {
+                otgs.push({row, col, type: 'DIAGONAL_L_TRAP', severity: 'critical'});
+                continue;
+              }
+            }
+            if (isObstacle(NE) && isObstacle(SE)) {
+              if (isObstacle(E)) {
+                otgs.push({row, col, type: 'DIAGONAL_L_TRAP', severity: 'critical'});
+                continue;
+              }
             }
           }
 
-          // CASE 3: Edge OTGs (trapped against map boundary)
+          // CASE 3: Edge cases - only check if actually trapped by obstacles at the edge
           const isAtEdge = (row === 0 || row === CANVAS_HEIGHT-1 || col === 0 || col === CANVAS_WIDTH-1);
 
-          if (isAtEdge) {
-            // Count only the valid neighbors (not out-of-bounds)
-            const validOrthogonalNeighbors = [];
-            if (row > 0) validOrthogonalNeighbors.push(N);
-            if (row < CANVAS_HEIGHT-1) validOrthogonalNeighbors.push(S);
-            if (col > 0) validOrthogonalNeighbors.push(W);
-            if (col < CANVAS_WIDTH-1) validOrthogonalNeighbors.push(E);
+          if (isAtEdge && orthogonalFilled >= 2) {
+            // Count valid neighbors and how many are obstacles
+            let validNeighbors = 0;
+            let obstacleNeighbors = 0;
 
-            const filledValidNeighbors = validOrthogonalNeighbors.filter(t => isObstacle(t)).length;
+            if (row > 0) {
+              validNeighbors++;
+              if (isObstacle(N)) obstacleNeighbors++;
+            }
+            if (row < CANVAS_HEIGHT-1) {
+              validNeighbors++;
+              if (isObstacle(S)) obstacleNeighbors++;
+            }
+            if (col > 0) {
+              validNeighbors++;
+              if (isObstacle(W)) obstacleNeighbors++;
+            }
+            if (col < CANVAS_WIDTH-1) {
+              validNeighbors++;
+              if (isObstacle(E)) obstacleNeighbors++;
+            }
 
-            // If at edge with all valid neighbors being obstacles (edge acts as wall)
-            if (filledValidNeighbors === validOrthogonalNeighbors.length && validOrthogonalNeighbors.length >= 2) {
+            // If at edge/corner with all valid neighbors being obstacles, mark as OTG
+            if (obstacleNeighbors === validNeighbors && validNeighbors >= 2) {
               otgs.push({row, col, type: 'EDGE_TRAPPED', severity: 'critical'});
               continue;
             }
-
-            // Corner cases - only 2 valid neighbors but both are obstacles
-            if (validOrthogonalNeighbors.length === 2 && filledValidNeighbors === 2) {
-              otgs.push({row, col, type: 'CORNER_EDGE', severity: 'critical'});
-              continue;
-            }
           }
+        }
 
-          // CASE 4: 3-sided trap with diagonal reinforcement
-          if (orthogonalFilled === 3) {
-            // Check if the diagonals also make this a complete trap
-            if (allFilled >= 6) { // 3 orthogonal + 3+ diagonal
-              otgs.push({row, col, type: 'THREE_SIDED_TRAP', severity: 'high'});
-              continue;
-            }
-          }
+        // Type 2: Check for 1-tile protrusions of obstacles (walls/water only, not grass)
+        const tile = tiles[row][col];
+        if (isObstacle(tile)) {
+          const neighbors8 = [
+            [row-1,col], [row+1,col], [row,col-1], [row,col+1],
+            [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
+          ].filter(([r, c]) => isValid(r, c));
 
-          // CASE 5: 1-tile corridors and sandwich patterns (obstacles on opposite sides)
-          // Check for obstacles (WALL/WATER) on BOTH opposite sides (sandwich pattern)
-          const isSandwichedNS = (isObstacle(N) || N === 'EDGE') &&
-                                 (isObstacle(S) || S === 'EDGE');
-          const isSandwichedEW = (isObstacle(E) || E === 'EDGE') &&
-                                 (isObstacle(W) || W === 'EDGE');
+          const sameTypeNeighbors = neighbors8.filter(([r, c]) => tiles[r][c] === tile);
+          const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
+            tiles[r][c] !== null && tiles[r][c] !== tile
+          );
 
-          if (isSandwichedNS || isSandwichedEW) {
-            // This is a true sandwich pattern - critical OTG
-            otgs.push({row, col, type: 'SANDWICH_PATTERN', severity: 'critical'});
-          } else if ((isObstacle(N) && isObstacle(S)) || (isObstacle(E) && isObstacle(W))) {
-            // General 1-tile corridor
-            otgs.push({row, col, type: '1-tile corridor', severity: 'medium'});
+          if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
+            otgs.push({row, col, type: '1-tile protrusion', severity: 'low'});
           }
         }
       }
