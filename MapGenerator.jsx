@@ -124,64 +124,110 @@ const MapGenerator = () => {
     console.log('\n--- PHASE 1: Structure Templates ---');
 
     const WALL_TEMPLATES = {
-      // Small (50% probability total)
-      single: { pattern: [[1]], weight: 15 },
-      bar_v2: { pattern: [[1],[1]], weight: 10 },
-      bar_h2: { pattern: [[1,1]], weight: 10 },
-      bar_v3: { pattern: [[1],[1],[1]], weight: 8 },
-      bar_h3: { pattern: [[1,1,1]], weight: 8 },
-      block_2x2: { pattern: [[1,1],[1,1]], weight: 10 },
-      L1: { pattern: [[1,1],[1,0]], weight: 7 },
-      L2: { pattern: [[1,1],[0,1]], weight: 7 },
-      L3: { pattern: [[1,0],[1,1]], weight: 7 },
-      L4: { pattern: [[0,1],[1,1]], weight: 7 },
-      T1: { pattern: [[1,1,1],[0,1,0]], weight: 6 },
-      T2: { pattern: [[1,0],[1,1],[1,0]], weight: 6 },
-      T3: { pattern: [[0,1,0],[1,1,1]], weight: 6 },
-      T4: { pattern: [[0,1],[1,1],[0,1]], weight: 6 },
+      // Small (20% probability total) - Reduced from 50%
+      single: { pattern: [[1]], weight: 2 },
+      bar_v2: { pattern: [[1],[1]], weight: 2 },
+      bar_h2: { pattern: [[1,1]], weight: 2 },
+      bar_v3: { pattern: [[1],[1],[1]], weight: 2 },
+      bar_h3: { pattern: [[1,1,1]], weight: 2 },
+      block_2x2: { pattern: [[1,1],[1,1]], weight: 3 },
+      L_small1: { pattern: [[1,1],[1,0]], weight: 2 },
+      L_small2: { pattern: [[1,1],[0,1]], weight: 2 },
+      L_small3: { pattern: [[1,0],[1,1]], weight: 2 },
+      L_small4: { pattern: [[0,1],[1,1]], weight: 2 },
 
-      // Medium (30% probability total)
-      bar_v4: { pattern: [[1],[1],[1],[1]], weight: 5 },
-      bar_h4: { pattern: [[1,1,1,1]], weight: 5 },
-      bar_v5: { pattern: [[1],[1],[1],[1],[1]], weight: 4 },
-      bar_h5: { pattern: [[1,1,1,1,1]], weight: 4 },
+      // Medium (50% probability total) - Increased from 30%
+      // 2x3 and 3x3 blocks
       block_2x3: { pattern: [[1,1],[1,1],[1,1]], weight: 5 },
       block_3x2: { pattern: [[1,1,1],[1,1,1]], weight: 5 },
-      L_big1: { pattern: [[1,1,1],[1,0,0]], weight: 4 },
-      L_big2: { pattern: [[1,1,1],[0,0,1]], weight: 4 },
-      L_big3: { pattern: [[1,0,0],[1,1,1]], weight: 4 },
-      L_big4: { pattern: [[0,0,1],[1,1,1]], weight: 4 },
-      U1: { pattern: [[1,0,1],[1,1,1]], weight: 4 },
-      U2: { pattern: [[1,1],[1,0],[1,1]], weight: 4 },
+      block_3x3: { pattern: [[1,1,1],[1,1,1],[1,1,1]], weight: 4 },
 
-      // Large (20% probability total)
-      bar_v6: { pattern: [[1],[1],[1],[1],[1],[1]], weight: 3 },
-      bar_h6: { pattern: [[1,1,1,1,1,1]], weight: 3 },
-      bar_v7: { pattern: [[1],[1],[1],[1],[1],[1],[1]], weight: 2 },
-      bar_h7: { pattern: [[1,1,1,1,1,1,1]], weight: 2 },
+      // L-shapes (30% of medium = 15% of total)
+      L_med1: { pattern: [[1,1,1],[1,0,0]], weight: 4 },
+      L_med2: { pattern: [[1,1,1],[0,0,1]], weight: 4 },
+      L_med3: { pattern: [[1,0,0],[1,1,1]], weight: 4 },
+      L_med4: { pattern: [[0,0,1],[1,1,1]], weight: 4 },
+      L_med5: { pattern: [[1,1,0],[1,0,0],[1,0,0]], weight: 3 },
+      L_med6: { pattern: [[0,1,1],[0,0,1],[0,0,1]], weight: 3 },
+
+      // T-shapes
+      T_med1: { pattern: [[1,1,1],[0,1,0]], weight: 3 },
+      T_med2: { pattern: [[1,0],[1,1],[1,0]], weight: 3 },
+      T_med3: { pattern: [[0,1,0],[1,1,1]], weight: 3 },
+      T_med4: { pattern: [[0,1],[1,1],[0,1]], weight: 3 },
+
+      // Diagonal and S-shapes
+      diag1: { pattern: [[1,0],[1,1],[0,1]], weight: 3 },
+      diag2: { pattern: [[0,1],[1,1],[1,0]], weight: 3 },
+      S_shape1: { pattern: [[1,1,0],[0,1,1]], weight: 3 },
+      S_shape2: { pattern: [[0,1,1],[1,1,0]], weight: 3 },
+
+      // Zig-zag walls
+      zigzag1: { pattern: [[1,0,0],[1,1,0],[0,1,1]], weight: 2 },
+      zigzag2: { pattern: [[0,0,1],[0,1,1],[1,1,0]], weight: 2 },
+
+      // Plus-shapes
+      plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 3 },
+
+      // U-shapes
+      U_med1: { pattern: [[1,0,1],[1,1,1]], weight: 3 },
+      U_med2: { pattern: [[1,1],[1,0],[1,1]], weight: 3 },
+
+      // Large (30% probability total) - Increased from 20%
+      bar_v4: { pattern: [[1],[1],[1],[1]], weight: 3 },
+      bar_h4: { pattern: [[1,1,1,1]], weight: 3 },
+      bar_v5: { pattern: [[1],[1],[1],[1],[1]], weight: 3 },
+      bar_h5: { pattern: [[1,1,1,1,1]], weight: 3 },
+      bar_v6: { pattern: [[1],[1],[1],[1],[1],[1]], weight: 2 },
+      bar_h6: { pattern: [[1,1,1,1,1,1]], weight: 2 },
       block_2x4: { pattern: [[1,1],[1,1],[1,1],[1,1]], weight: 3 },
-      block_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 2 },
-      box_3x3: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 3 },
-      plus: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 2 }
+      block_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 2 },
+
+      // Large L-shapes
+      L_big1: { pattern: [[1,1,1,1],[1,0,0,0]], weight: 2 },
+      L_big2: { pattern: [[1,1,1,1],[0,0,0,1]], weight: 2 },
+      L_big3: { pattern: [[1,0,0],[1,0,0],[1,1,1]], weight: 2 },
+      L_big4: { pattern: [[0,0,1],[0,0,1],[1,1,1]], weight: 2 },
+
+      // Large complex shapes
+      box_hollow: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 2 },
+      C_shape1: { pattern: [[1,1,1],[1,0,0],[1,1,1]], weight: 2 },
+      C_shape2: { pattern: [[1,1,1],[0,0,1],[1,1,1]], weight: 2 },
+      T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 2 }
     };
 
     const BUSH_TEMPLATES = {
-      // All bushes must be 2+ tiles wide
-      square_2x2: { pattern: [[1,1],[1,1]], weight: 1 },
-      rect_2x3: { pattern: [[1,1],[1,1],[1,1]], weight: 1 },
-      rect_3x2: { pattern: [[1,1,1],[1,1,1]], weight: 1 },
-      rect_2x4: { pattern: [[1,1],[1,1],[1,1],[1,1]], weight: 1 },
-      rect_4x2: { pattern: [[1,1,1,1],[1,1,1,1]], weight: 1 },
-      L_wide1: { pattern: [[1,1],[1,1],[1,1,0,0]], weight: 0.5 },
-      L_wide2: { pattern: [[1,1,0,0],[1,1],[1,1]], weight: 0.5 }
+      // All bushes must be 2+ tiles wide, minimum 2x3 (6 tiles)
+      // Reduced 2x2 probability from weight 1 to 0.3 (10%)
+      square_2x2: { pattern: [[1,1],[1,1]], weight: 0.3 },
+
+      // Preferred sizes: 2x3, 2x4, 3x3 with higher weights
+      rect_2x3: { pattern: [[1,1],[1,1],[1,1]], weight: 2 },
+      rect_3x2: { pattern: [[1,1,1],[1,1,1]], weight: 2 },
+      rect_2x4: { pattern: [[1,1],[1,1],[1,1],[1,1]], weight: 2 },
+      rect_4x2: { pattern: [[1,1,1,1],[1,1,1,1]], weight: 2 },
+      rect_3x3: { pattern: [[1,1,1],[1,1,1],[1,1,1]], weight: 1.5 },
+
+      // L-shapes with 8-12 tiles
+      L_wide1: { pattern: [[1,1,0],[1,1,0],[1,1,1]], weight: 1.5 },
+      L_wide2: { pattern: [[0,1,1],[0,1,1],[1,1,1]], weight: 1.5 },
+      L_wide3: { pattern: [[1,1,1],[1,1,0],[1,1,0]], weight: 1.5 },
+      L_wide4: { pattern: [[1,1,1],[0,1,1],[0,1,1]], weight: 1.5 },
+
+      // Larger bush clusters
+      T_bush: { pattern: [[0,1,1,0],[1,1,1,1],[0,1,1,0]], weight: 1 },
+      rect_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
+      rect_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 1 }
     };
 
     const WATER_TEMPLATES = {
-      // Minimal water features
-      pool_2x3: { pattern: [[1,1],[1,1],[1,1]], weight: 1 },
-      pool_3x3: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 1 },
-      pool_3x2: { pattern: [[1,1,1],[1,1,1]], weight: 1 },
-      river_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 0.5 }
+      // Strategic water features - minimum 8+ tiles, for mid strip placement
+      pool_2x4: { pattern: [[1,1],[1,1],[1,1],[1,1]], weight: 1 },
+      pool_3x3: { pattern: [[1,1,1],[1,1,1],[1,1,1]], weight: 1 },
+      pool_4x2: { pattern: [[1,1,1,1],[1,1,1,1]], weight: 1 },
+      river_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
+      river_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 0.8 },
+      L_water: { pattern: [[1,1,1],[1,1,0],[1,1,0]], weight: 0.5 }
     };
 
     console.log(`  Wall templates: ${Object.keys(WALL_TEMPLATES).length}`);
@@ -290,6 +336,135 @@ const MapGenerator = () => {
         return total > 0 ? filled / total : 0;
       }
     };
+
+    // ===== PHASE 3.5: PATTERN PLACEMENT MODES =====
+    console.log('\n--- PHASE 3.5: Pattern Placement ---');
+
+    // 30% of the time, use pattern placement instead of pure random
+    const usePatternPlacement = Math.random() < 0.30;
+
+    if (usePatternPlacement) {
+      console.log('  Using PATTERN placement mode');
+
+      // Helper: Try to place a wall template at a position
+      const tryPlaceWallPattern = (template, row, col) => {
+        // Check if placement is valid
+        const zone = getZone(row, col);
+        const mirrorPositions = calculateMirrorPositions(template, row, col);
+
+        let allValid = true;
+        for (const pos of mirrorPositions) {
+          const posZone = getZone(pos.row, pos.col);
+          if (!checkPlacementValid(template, pos.row, pos.col, placedTiles, posZone, TERRAIN_TYPES.WALL)) {
+            allValid = false;
+            break;
+          }
+        }
+
+        if (allValid) {
+          placeTemplate(template, row, col, TERRAIN_TYPES.WALL, placedTiles);
+          return true;
+        }
+        return false;
+      };
+
+      // Pattern 1: CORRIDOR (3-5 walls in a line with 3-tile gaps)
+      if (Math.random() < 0.5) {
+        console.log('  Creating CORRIDOR pattern');
+        const isVertical = Math.random() < 0.5;
+        const wallCount = 3 + Math.floor(Math.random() * 3); // 3-5 walls
+        const template = [[1,1],[1,1],[1,1]]; // 2x3 vertical wall
+
+        if (isVertical) {
+          // Vertical corridor in mid strip
+          const startRow = MID_STRIP_START;
+          const col = 5 + Math.floor(Math.random() * 11); // Random column in middle area
+
+          for (let i = 0; i < wallCount; i++) {
+            const row = startRow + i * 4; // 3-tile gap + 1-tile wall
+            if (row + template.length <= MID_STRIP_END) {
+              tryPlaceWallPattern(template, row, col);
+            }
+          }
+        } else {
+          // Horizontal corridor
+          const row = MID_STRIP_START + Math.floor(Math.random() * 7);
+          const startCol = 2;
+
+          for (let i = 0; i < wallCount; i++) {
+            const col = startCol + i * 4; // 3-tile gap + 1-tile wall
+            if (col + 2 < CANVAS_WIDTH) {
+              tryPlaceWallPattern([[1,1],[1,1]], row, col);
+            }
+          }
+        }
+      }
+
+      // Pattern 2: FORTIFICATION (4-6 structures in 5x7 cluster)
+      if (Math.random() < 0.5) {
+        console.log('  Creating FORTIFICATION pattern');
+        const structureCount = 4 + Math.floor(Math.random() * 3); // 4-6 structures
+
+        // Place in backside zone for defensive positioning
+        const fortRow = Math.random() < 0.5 ? 2 : 24; // Top or bottom backside
+        const fortCol = 5 + Math.floor(Math.random() * 7); // Center area
+
+        const templates = [
+          [[1,1],[1,1],[1,1]], // 2x3
+          [[1,1,1],[1,1,1]], // 3x2
+          [[1,1,1],[1,0,0]], // L-shape
+          [[0,1,1],[1,1,0]]  // S-shape
+        ];
+
+        for (let i = 0; i < structureCount; i++) {
+          const template = templates[Math.floor(Math.random() * templates.length)];
+          const offsetRow = fortRow + Math.floor(Math.random() * 5);
+          const offsetCol = fortCol + Math.floor(Math.random() * 5);
+
+          if (offsetRow >= 0 && offsetRow + template.length < CANVAS_HEIGHT &&
+              offsetCol >= 0 && offsetCol + template[0].length < CANVAS_WIDTH) {
+            tryPlaceWallPattern(template, offsetRow, offsetCol);
+          }
+        }
+      }
+
+      // Pattern 3: CHOKEPOINT (2 large walls with 2-3 tile gap)
+      if (Math.random() < 0.5) {
+        console.log('  Creating CHOKEPOINT pattern');
+        const gapSize = 2 + Math.floor(Math.random() * 2); // 2-3 tile gap
+        const template = [[1,1],[1,1],[1,1],[1,1]]; // 2x4 large wall
+
+        // Place in mid strip for strategic control
+        const row = MID_STRIP_START + Math.floor(Math.random() * 5);
+        const leftCol = 3;
+        const rightCol = leftCol + 2 + gapSize + 2; // left wall + gap + right wall
+
+        if (rightCol + 2 <= CANVAS_WIDTH) {
+          tryPlaceWallPattern(template, row, leftCol);
+          tryPlaceWallPattern(template, row, rightCol);
+        }
+      }
+
+      // Pattern 4: MIRROR CORRIDOR (matching walls on left/right creating a lane)
+      if (Math.random() < 0.5 && mirrorVertical) {
+        console.log('  Creating MIRROR CORRIDOR pattern');
+        const wallCount = 3 + Math.floor(Math.random() * 2); // 3-4 walls per side
+        const template = [[1,1],[1,1],[1,1]]; // 2x3 wall
+
+        for (let i = 0; i < wallCount; i++) {
+          const row = MID_STRIP_START + i * 3;
+          const col = 2; // Left side - mirror will create right side automatically
+
+          if (row + template.length <= MID_STRIP_END) {
+            tryPlaceWallPattern(template, row, col);
+          }
+        }
+      }
+
+      console.log('  Pattern placement complete');
+    } else {
+      console.log('  Using RANDOM placement mode');
+    }
 
     // ===== PHASE 4 & 5: TEMPLATE PLACEMENT WITH VALIDATION =====
     console.log('\n--- PHASE 4: Template Placement ---');
@@ -650,6 +825,81 @@ const MapGenerator = () => {
       return otgs;
     };
 
+    // BRUTE-FORCE: Detect ALL OTGs across entire map
+    const detectAllOTGs = (tiles) => {
+      const otgs = [];
+
+      // Scan every tile on the map
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          // Type 1: Empty tile with 4 filled orthogonal neighbors (completely trapped)
+          if (tiles[row][col] === null) {
+            const neighbors4 = [
+              [row-1, col],  // North
+              [row+1, col],  // South
+              [row, col-1],  // West
+              [row, col+1]   // East
+            ];
+
+            let filledCount = 0;
+            let filledN = false, filledS = false, filledW = false, filledE = false;
+
+            for (let i = 0; i < neighbors4.length; i++) {
+              const [r, c] = neighbors4[i];
+              if (isValid(r, c) && tiles[r][c] !== null) {
+                filledCount++;
+                if (i === 0) filledN = true;
+                if (i === 1) filledS = true;
+                if (i === 2) filledW = true;
+                if (i === 3) filledE = true;
+              }
+            }
+
+            // CRITICAL OTG: 4 filled neighbors
+            if (filledCount === 4) {
+              otgs.push({row, col, type: 'CRITICAL: 4-way trapped', severity: 'critical'});
+            }
+            // LIKELY OTG: 3 filled neighbors (check diagonal for 4th)
+            else if (filledCount === 3) {
+              // Check if there's a diagonal fill making it effectively trapped
+              const diagonals = [
+                [row-1, col-1], [row-1, col+1], [row+1, col-1], [row+1, col+1]
+              ];
+              const filledDiagonals = diagonals.filter(([r, c]) => isValid(r, c) && tiles[r][c] !== null).length;
+
+              if (filledDiagonals >= 1) {
+                otgs.push({row, col, type: 'LIKELY: 3-way + diagonal', severity: 'high'});
+              }
+            }
+            // Check for 1-tile corridors (filled on opposite sides)
+            else if ((filledN && filledS) || (filledE && filledW)) {
+              otgs.push({row, col, type: '1-tile corridor', severity: 'medium'});
+            }
+          }
+
+          // Type 2: 1-tile protrusions of different terrain
+          const tile = tiles[row][col];
+          if (tile !== null) {
+            const neighbors8 = [
+              [row-1,col], [row+1,col], [row,col-1], [row,col+1],
+              [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
+            ].filter(([r, c]) => isValid(r, c));
+
+            const sameTypeNeighbors = neighbors8.filter(([r, c]) => tiles[r][c] === tile);
+            const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
+              tiles[r][c] !== null && tiles[r][c] !== tile
+            );
+
+            if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
+              otgs.push({row, col, type: '1-tile protrusion', severity: 'low'});
+            }
+          }
+        }
+      }
+
+      return otgs;
+    };
+
     // Helper: Undo template placement
     const undoTemplatePlacement = (template, row, col, terrainType, tiles) => {
       const positions = calculateMirrorPositions(template, row, col);
@@ -772,6 +1022,10 @@ const MapGenerator = () => {
       let attemptCount = 0;
       const maxAttempts = 5000;
 
+      // Special handling for water: limit to 2 structures max, mid strip only
+      let waterStructureCount = 0;
+      const maxWaterStructures = 2;
+
       while (currentTileCount < targetCount && attemptCount < maxAttempts) {
         attemptCount++;
 
@@ -779,9 +1033,30 @@ const MapGenerator = () => {
         const template = chooseTemplate(templates);
         const templateSize = countTilesInTemplate(template);
 
-        // Step 2: Choose random position
-        const row = Math.floor(Math.random() * (CANVAS_HEIGHT - template.length + 1));
-        const col = Math.floor(Math.random() * (CANVAS_WIDTH - template[0].length + 1));
+        // Step 2: Choose position - STRATEGIC placement for water
+        let row, col;
+
+        if (type === TERRAIN_TYPES.WATER) {
+          // STRATEGIC WATER PLACEMENT: Only in mid strip (rows 11-21)
+          // Skip water if we've placed max structures or density too low for strategic placement
+          if (waterStructureCount >= maxWaterStructures) {
+            break; // Stop placing water
+          }
+
+          // Only place water if template is 8+ tiles
+          if (templateSize < 8) {
+            continue; // Skip small water templates
+          }
+
+          // Place in mid strip with strategic positioning
+          const midStripHeight = MID_STRIP_END - MID_STRIP_START + 1;
+          row = MID_STRIP_START + Math.floor(Math.random() * (midStripHeight - template.length + 1));
+          col = 5 + Math.floor(Math.random() * (CANVAS_WIDTH - 10 - template[0].length + 1)); // Center area
+        } else {
+          // Random placement for walls and bushes
+          row = Math.floor(Math.random() * (CANVAS_HEIGHT - template.length + 1));
+          col = Math.floor(Math.random() * (CANVAS_WIDTH - template[0].length + 1));
+        }
 
         // Step 3: Determine zone
         const zone = getZone(row, col);
@@ -813,30 +1088,36 @@ const MapGenerator = () => {
         // Step 7: Place template at all mirror positions atomically
         const tilesPlaced = placeTemplate(template, row, col, type, placedTiles);
 
-        // Step 8: POST-PLACEMENT VERIFICATION - Scan for OTGs in 3-tile radius
-        let otgsDetected = false;
-        // Reuse mirrorPositions from line 796
-        for (const pos of mirrorPositions) {
-          const otgs = detectOTGsInRadius(placedTiles, pos.row, pos.col, 3);
-          if (otgs.length > 0) {
-            otgsDetected = true;
-            console.log(`  WARNING: OTG detected after placement at (${pos.row}, ${pos.col}), undoing...`);
-            break;
-          }
-        }
+        // Step 8: POST-PLACEMENT VERIFICATION - BRUTE-FORCE scan ENTIRE MAP for OTGs
+        const otgs = detectAllOTGs(placedTiles);
 
-        if (otgsDetected) {
-          // UNDO the placement immediately
-          undoTemplatePlacement(template, row, col, type, placedTiles);
-          continue; // Try another position
+        if (otgs.length > 0) {
+          // Found OTGs - UNDO the placement immediately
+          const criticalOTGs = otgs.filter(o => o.severity === 'critical');
+          const highOTGs = otgs.filter(o => o.severity === 'high');
+
+          if (criticalOTGs.length > 0 || highOTGs.length > 0) {
+            // Only reject for critical and high severity OTGs
+            undoTemplatePlacement(template, row, col, type, placedTiles);
+            continue; // Try another position
+          }
+          // Medium and low severity OTGs are acceptable (1-tile corridors, protrusions)
         }
 
         // Placement successful
         currentTileCount += tilesPlaced;
         placedStructures.push({ type: name, position: [row, col], size: tilesPlaced });
+
+        // Track water structure count
+        if (type === TERRAIN_TYPES.WATER) {
+          waterStructureCount++;
+        }
       }
 
       console.log(`  ${name}: placed ${currentTileCount}/${targetCount} tiles in ${attemptCount} attempts`);
+      if (type === TERRAIN_TYPES.WATER) {
+        console.log(`  Water structures placed: ${waterStructureCount} (max: ${maxWaterStructures})`);
+      }
     }
 
     // ===== PHASE 6: SYMMETRY APPLICATION =====
@@ -846,6 +1127,100 @@ const MapGenerator = () => {
 
     // ===== PHASE 7: FINAL VALIDATION =====
     console.log('\n--- PHASE 7: Final Validation ---');
+
+    // 0. STRICT SYMMETRY VALIDATION AND CORRECTION
+    let symmetryErrors = 0;
+    const symmetryViolations = [];
+
+    if (mirrorVertical || mirrorHorizontal || mirrorDiagonal) {
+      console.log('  Checking symmetry...');
+
+      if (mirrorVertical) {
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < Math.floor(CANVAS_WIDTH / 2); col++) {
+            const mirrorCol = CANVAS_WIDTH - 1 - col;
+            if (placedTiles[row][col] !== placedTiles[row][mirrorCol]) {
+              symmetryErrors++;
+              symmetryViolations.push({
+                type: 'vertical',
+                pos1: [row, col],
+                pos2: [row, mirrorCol],
+                val1: placedTiles[row][col],
+                val2: placedTiles[row][mirrorCol]
+              });
+
+              // FORCE CORRECTION: Set both to null (remove asymmetry)
+              placedTiles[row][col] = null;
+              placedTiles[row][mirrorCol] = null;
+            }
+          }
+        }
+      }
+
+      if (mirrorHorizontal) {
+        for (let row = 0; row < Math.floor(CANVAS_HEIGHT / 2); row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            const mirrorRow = CANVAS_HEIGHT - 1 - row;
+            if (placedTiles[row][col] !== placedTiles[mirrorRow][col]) {
+              symmetryErrors++;
+              symmetryViolations.push({
+                type: 'horizontal',
+                pos1: [row, col],
+                pos2: [mirrorRow, col],
+                val1: placedTiles[row][col],
+                val2: placedTiles[mirrorRow][col]
+              });
+
+              // FORCE CORRECTION: Set both to null (remove asymmetry)
+              placedTiles[row][col] = null;
+              placedTiles[mirrorRow][col] = null;
+            }
+          }
+        }
+      }
+
+      if (mirrorDiagonal) {
+        const centerRow = Math.floor(CANVAS_HEIGHT / 2);
+        const centerCol = Math.floor(CANVAS_WIDTH / 2);
+
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            const offsetRow = row - centerRow;
+            const offsetCol = col - centerCol;
+            const mirrorRow = centerRow - offsetRow;
+            const mirrorCol = centerCol - offsetCol;
+
+            if (mirrorRow >= 0 && mirrorRow < CANVAS_HEIGHT && mirrorCol >= 0 && mirrorCol < CANVAS_WIDTH) {
+              if (row <= mirrorRow && col <= mirrorCol) { // Check only once per pair
+                if (placedTiles[row][col] !== placedTiles[mirrorRow][mirrorCol]) {
+                  symmetryErrors++;
+                  symmetryViolations.push({
+                    type: 'diagonal',
+                    pos1: [row, col],
+                    pos2: [mirrorRow, mirrorCol],
+                    val1: placedTiles[row][col],
+                    val2: placedTiles[mirrorRow][mirrorCol]
+                  });
+
+                  // FORCE CORRECTION: Set both to null (remove asymmetry)
+                  placedTiles[row][col] = null;
+                  placedTiles[mirrorRow][mirrorCol] = null;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (symmetryErrors > 0) {
+        console.log(`  ERROR: Found ${symmetryErrors} symmetry violations - CORRECTED by removing mismatched tiles`);
+        for (const violation of symmetryViolations.slice(0, 5)) { // Log first 5
+          console.log(`    ${violation.type}: (${violation.pos1}) vs (${violation.pos2})`);
+        }
+      } else {
+        console.log(`  Symmetry verification: PERFECT (0 errors)`);
+      }
+    }
 
     // 1. Scan for OTGs (should be 0)
     let otgCount = 0;
@@ -891,32 +1266,7 @@ const MapGenerator = () => {
       }
     }
 
-    // 2. Verify symmetry
-    let symmetryErrors = 0;
-
-    if (mirrorVertical) {
-      for (let row = 0; row < CANVAS_HEIGHT; row++) {
-        for (let col = 0; col < CANVAS_WIDTH / 2; col++) {
-          const mirrorCol = CANVAS_WIDTH - 1 - col;
-          if (placedTiles[row][col] !== placedTiles[row][mirrorCol]) {
-            symmetryErrors++;
-          }
-        }
-      }
-    }
-
-    if (mirrorHorizontal) {
-      for (let row = 0; row < CANVAS_HEIGHT / 2; row++) {
-        for (let col = 0; col < CANVAS_WIDTH; col++) {
-          const mirrorRow = CANVAS_HEIGHT - 1 - row;
-          if (placedTiles[row][col] !== placedTiles[mirrorRow][col]) {
-            symmetryErrors++;
-          }
-        }
-      }
-    }
-
-    // 3. Log statistics
+    // 2. Log statistics
     console.log('\n=== Map Generation Complete ===');
     console.log(`Structures placed: ${placedStructures.length}`);
 
@@ -931,11 +1281,17 @@ const MapGenerator = () => {
       (placedStructures.reduce((sum, s) => sum + s.size, 0) / placedStructures.length).toFixed(1) : 0;
     console.log(`Average structure size: ${avgSize} tiles`);
 
-    // Size distribution
-    const small = placedStructures.filter(s => s.size <= 4).length;
-    const medium = placedStructures.filter(s => s.size > 4 && s.size <= 10).length;
-    const large = placedStructures.filter(s => s.size > 10).length;
-    console.log(`Size distribution: small=${small}, medium=${medium}, large=${large}`);
+    // Size distribution (CRITICAL FOR PROBLEM 1 FIX)
+    const tinyStructures = placedStructures.filter(s => s.size < 4).length; // 1-3 tiles
+    const small = placedStructures.filter(s => s.size >= 4 && s.size <= 8).length; // 4-8 tiles (20% target)
+    const medium = placedStructures.filter(s => s.size > 8 && s.size <= 20).length; // 9-20 tiles (50% target)
+    const large = placedStructures.filter(s => s.size > 20).length; // 21+ tiles (30% target)
+
+    console.log(`Size distribution:`);
+    console.log(`  Tiny (<4 tiles): ${tinyStructures} (target: <5, ${((tinyStructures / placedStructures.length) * 100).toFixed(1)}%)`);
+    console.log(`  Small (4-8 tiles): ${small} (target: 20%, actual: ${((small / placedStructures.length) * 100).toFixed(1)}%)`);
+    console.log(`  Medium (9-20 tiles): ${medium} (target: 50%, actual: ${((medium / placedStructures.length) * 100).toFixed(1)}%)`);
+    console.log(`  Large (21+ tiles): ${large} (target: 30%, actual: ${((large / placedStructures.length) * 100).toFixed(1)}%)`);
 
     // Zone coverage
     for (const zone of zones) {
@@ -962,7 +1318,7 @@ const MapGenerator = () => {
     console.log(`Backside coverage: ${((backsideFilled / backsideTotal) * 100).toFixed(1)}%`);
 
     console.log(`OTGs found: ${otgCount} (should be 0)`);
-    console.log(`Symmetry errors: ${symmetryErrors} (should be 0)`);
+    console.log(`Symmetry errors after correction: ${symmetryErrors > 0 ? 'CORRECTED' : '0'} (should be 0)`);
 
     // CRITICAL VALIDATION: Check structure sizes
     let structureSizeViolations = 0;
