@@ -815,7 +815,7 @@ const MapGenerator = () => {
 
         // Step 8: POST-PLACEMENT VERIFICATION - Scan for OTGs in 3-tile radius
         let otgsDetected = false;
-        const mirrorPositions = calculateMirrorPositions(template, row, col);
+        // Reuse mirrorPositions from line 796
         for (const pos of mirrorPositions) {
           const otgs = detectOTGsInRadius(placedTiles, pos.row, pos.col, 3);
           if (otgs.length > 0) {
