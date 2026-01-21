@@ -27,9 +27,9 @@ const MapGenerator = () => {
   const [selectedTool, setSelectedTool] = useState(TERRAIN_TYPES.WALL);
   const [isDrawing, setIsDrawing] = useState(false);
   const [toolbarOpen, setToolbarOpen] = useState(true);
-  const [wallDensity, setWallDensity] = useState(15);
-  const [waterDensity, setWaterDensity] = useState(10);
-  const [grassDensity, setGrassDensity] = useState(15);
+  const [wallDensity, setWallDensity] = useState(10);
+  const [waterDensity, setWaterDensity] = useState(5);
+  const [grassDensity, setGrassDensity] = useState(10);
   const [mirrorVertical, setMirrorVertical] = useState(false);
   const [mirrorHorizontal, setMirrorHorizontal] = useState(false);
   const [mirrorDiagonal, setMirrorDiagonal] = useState(false);
@@ -237,18 +237,13 @@ const MapGenerator = () => {
     // ===== PHASE 2: CALCULATE PLACEMENT TARGETS =====
     console.log('\n--- PHASE 2: Placement Targets ---');
 
-    // Use better defaults if user hasn't changed them
-    const effectiveWallDensity = wallDensity === 15 ? 25 : wallDensity;
-    const effectiveGrassDensity = grassDensity === 15 ? 20 : grassDensity;
-    const effectiveWaterDensity = waterDensity === 10 ? 8 : waterDensity;
+    const targetWalls = Math.floor((wallDensity / 100) * totalTiles);
+    const targetBushes = Math.floor((grassDensity / 100) * totalTiles);
+    const targetWater = Math.min(Math.floor((waterDensity / 100) * totalTiles), totalTiles * 0.1); // Cap at 10%
 
-    const targetWalls = Math.floor((effectiveWallDensity / 100) * totalTiles);
-    const targetBushes = Math.floor((effectiveGrassDensity / 100) * totalTiles);
-    const targetWater = Math.min(Math.floor((effectiveWaterDensity / 100) * totalTiles), totalTiles * 0.1); // Cap at 10%
-
-    console.log(`  Target walls: ${targetWalls} tiles (${effectiveWallDensity}%)`);
-    console.log(`  Target bushes: ${targetBushes} tiles (${effectiveGrassDensity}%)`);
-    console.log(`  Target water: ${targetWater} tiles (${effectiveWaterDensity}%)`);
+    console.log(`  Target walls: ${targetWalls} tiles (${wallDensity}%)`);
+    console.log(`  Target bushes: ${targetBushes} tiles (${grassDensity}%)`);
+    console.log(`  Target water: ${targetWater} tiles (${waterDensity}%)`);
 
     // ===== PHASE 3: STRATEGIC AREA PLANNING =====
     console.log('\n--- PHASE 3: Zone Planning ---');
@@ -770,6 +765,19 @@ const MapGenerator = () => {
         return false;
       }
 
+      // Check 8: Internal corners check for L/T-shapes (FIX 3)
+      if (terrainType === TERRAIN_TYPES.WALL) {
+        if (!checkLShapeInternalCorners(template, row, col, tiles)) {
+          return false; // Would create OTG at internal corner
+        }
+      }
+
+      // Check 9: Section-based distribution (FIX 5)
+      const sectionCov = getSectionCoverage(row, col, testGrid);
+      if (sectionCov > 0.60) {
+        return false; // Section too dense
+      }
+
       return true; // Placement is valid!
     };
 
@@ -1007,6 +1015,325 @@ const MapGenerator = () => {
       return totalTilesPlaced;
     };
 
+    // Helper: Identify all structures of a given terrain type
+    const identifyAllStructures = (tiles, terrainType) => {
+      const structures = [];
+      const visited = new Set();
+
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          const key = `${row},${col}`;
+          if (tiles[row][col] === terrainType && !visited.has(key)) {
+            // Found new structure - flood fill to get all positions
+            const positions = [];
+            const queue = [[row, col]];
+
+            while (queue.length > 0) {
+              const [r, c] = queue.shift();
+              const k = `${r},${c}`;
+
+              if (!isValid(r, c) || visited.has(k) || tiles[r][c] !== terrainType) continue;
+
+              visited.add(k);
+              positions.push([r, c]);
+
+              [[r-1,c], [r+1,c], [r,c-1], [r,c+1]].forEach(([nr, nc]) => {
+                if (!visited.has(`${nr},${nc}`)) queue.push([nr, nc]);
+              });
+            }
+
+            if (positions.length > 0) {
+              structures.push(positions);
+            }
+          }
+        }
+      }
+
+      return structures;
+    };
+
+    // Helper: Calculate minimum distance between two structures
+    const minimumDistanceBetweenStructures = (struct1, struct2) => {
+      let minDist = Infinity;
+      for (const [r1, c1] of struct1) {
+        for (const [r2, c2] of struct2) {
+          const dist = Math.abs(r1 - r2) + Math.abs(c1 - c2); // Manhattan distance
+          minDist = Math.min(minDist, dist);
+        }
+      }
+      return minDist;
+    };
+
+    // Helper: Get bounding box and dimensions of a structure
+    const getStructureBounds = (structure) => {
+      const rows = structure.map(p => p[0]);
+      const cols = structure.map(p => p[1]);
+      const minRow = Math.min(...rows);
+      const maxRow = Math.max(...rows);
+      const minCol = Math.min(...cols);
+      const maxCol = Math.max(...cols);
+
+      return {
+        minRow, maxRow, minCol, maxCol,
+        width: maxCol - minCol + 1,
+        height: maxRow - minRow + 1,
+        size: structure.length
+      };
+    };
+
+    // Helper: Fill gap between two structures
+    const fillGapBetweenStructures = (struct1, struct2, terrainType, tiles) => {
+      // Find shortest path between structures
+      const bounds1 = getStructureBounds(struct1);
+      const bounds2 = getStructureBounds(struct2);
+
+      // Get all tiles between the structures
+      const minRow = Math.min(bounds1.minRow, bounds2.minRow);
+      const maxRow = Math.max(bounds1.maxRow, bounds2.maxRow);
+      const minCol = Math.min(bounds1.minCol, bounds2.minCol);
+      const maxCol = Math.max(bounds1.maxCol, bounds2.maxCol);
+
+      let tilesAdded = 0;
+
+      // Fill connecting tiles using flood-fill approach
+      for (let row = minRow; row <= maxRow; row++) {
+        for (let col = minCol; col <= maxCol; col++) {
+          if (!isValid(row, col) || tiles[row][col] !== null) continue;
+
+          // Check if this tile is adjacent to either structure
+          const neighbors = [[row-1,col], [row+1,col], [row,col-1], [row,col+1]];
+          const hasStruct1Neighbor = neighbors.some(([r,c]) =>
+            struct1.some(([sr, sc]) => sr === r && sc === c)
+          );
+          const hasStruct2Neighbor = neighbors.some(([r,c]) =>
+            struct2.some(([sr, sc]) => sr === r && sc === c)
+          );
+
+          // If adjacent to either structure and in gap area, fill it
+          if (hasStruct1Neighbor || hasStruct2Neighbor) {
+            tiles[row][col] = terrainType;
+            tilesAdded++;
+          }
+        }
+      }
+
+      return tilesAdded;
+    };
+
+    // FIX 2: SMART BUSH MERGING
+    const mergeNearbyBushes = (tiles) => {
+      console.log('\n--- Smart Bush Merging ---');
+      let mergeCount = 0;
+
+      // Identify all bush structures
+      const bushStructures = identifyAllStructures(tiles, TERRAIN_TYPES.GRASS);
+      console.log(`  Found ${bushStructures.length} bush structures`);
+
+      // Try to merge nearby bushes
+      for (let i = 0; i < bushStructures.length; i++) {
+        for (let j = i + 1; j < bushStructures.length; j++) {
+          const bush1 = bushStructures[i];
+          const bush2 = bushStructures[j];
+
+          const distance = minimumDistanceBetweenStructures(bush1, bush2);
+
+          if (distance <= 2 && distance > 0) {
+            // Check if merge would be valid
+            const bounds1 = getStructureBounds(bush1);
+            const bounds2 = getStructureBounds(bush2);
+
+            // Calculate merged bounds
+            const mergedMinRow = Math.min(bounds1.minRow, bounds2.minRow);
+            const mergedMaxRow = Math.max(bounds1.maxRow, bounds2.maxRow);
+            const mergedMinCol = Math.min(bounds1.minCol, bounds2.minCol);
+            const mergedMaxCol = Math.max(bounds1.maxCol, bounds2.maxCol);
+
+            const mergedWidth = mergedMaxCol - mergedMinCol + 1;
+            const mergedHeight = mergedMaxRow - mergedMinRow + 1;
+            const mergedSize = bounds1.size + bounds2.size + distance; // Approximate
+
+            const maxDimension = Math.max(mergedWidth, mergedHeight);
+            const minDimension = Math.min(mergedWidth, mergedHeight);
+
+            // Check merge criteria
+            if (mergedSize <= 35 && minDimension >= 2 && maxDimension <= 12) {
+              // Merge is valid - fill gap
+              const tilesAdded = fillGapBetweenStructures(bush1, bush2, TERRAIN_TYPES.GRASS, tiles);
+
+              if (tilesAdded > 0) {
+                console.log(`  Merged bushes at (${bounds1.minRow},${bounds1.minCol}) and (${bounds2.minRow},${bounds2.minCol}) - added ${tilesAdded} tiles`);
+                mergeCount++;
+
+                // Update bush2 to include merged tiles for further merging
+                for (let row = mergedMinRow; row <= mergedMaxRow; row++) {
+                  for (let col = mergedMinCol; col <= mergedMaxCol; col++) {
+                    if (isValid(row, col) && tiles[row][col] === TERRAIN_TYPES.GRASS) {
+                      const alreadyInBush2 = bush2.some(([r, c]) => r === row && c === col);
+                      if (!alreadyInBush2) {
+                        bush2.push([row, col]);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      console.log(`  Merged ${mergeCount} bush pairs`);
+      return mergeCount;
+    };
+
+    // FIX 3: CHECK INTERNAL CORNERS FOR L/T-SHAPES
+    const checkLShapeInternalCorners = (template, row, col, tiles) => {
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
+
+      // Identify internal corners (tiles with 1 in template that have empty space in template)
+      const internalCorners = [];
+
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            // Check if this is an internal corner by looking at template neighbors
+            const hasEmptyInTemplate = [
+              [i-1, j], [i+1, j], [i, j-1], [i, j+1]
+            ].some(([ti, tj]) => {
+              if (ti >= 0 && ti < templateHeight && tj >= 0 && tj < templateWidth) {
+                return template[ti][tj] === 0;
+              }
+              return false;
+            });
+
+            if (hasEmptyInTemplate) {
+              internalCorners.push([i, j]);
+            }
+          }
+        }
+      }
+
+      // Check each internal corner
+      for (const [ti, tj] of internalCorners) {
+        const cornerRow = row + ti;
+        const cornerCol = col + tj;
+
+        // Check tiles adjacent to this corner position
+        const adjacentChecks = [
+          [cornerRow-1, cornerCol], [cornerRow+1, cornerCol],
+          [cornerRow, cornerCol-1], [cornerRow, cornerCol+1]
+        ];
+
+        for (const [adjRow, adjCol] of adjacentChecks) {
+          if (!isValid(adjRow, adjCol)) continue;
+          if (tiles[adjRow][adjCol] !== null) continue; // Already filled
+
+          // Check if this empty tile would become trapped
+          const emptyNeighbors = [
+            [adjRow-1, adjCol], [adjRow+1, adjCol],
+            [adjRow, adjCol-1], [adjRow, adjCol+1]
+          ].filter(([r, c]) => isValid(r, c) && tiles[r][c] === null).length;
+
+          if (emptyNeighbors <= 1) {
+            return false; // Would create OTG at internal corner
+          }
+        }
+      }
+
+      return true;
+    };
+
+    // FIX 4: FINAL COMPREHENSIVE OTG FIXING SCAN
+    const fixAllRemainingOTGs = (tiles) => {
+      console.log('\n--- Final OTG Fixing Scan ---');
+      let otgsFixed = 0;
+
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          if (tiles[row][col] === null) { // Empty tile
+            const neighbors = [
+              {tile: row-1 >= 0 ? tiles[row-1][col] : null, pos: [row-1, col], dir: 'N'},
+              {tile: row+1 < CANVAS_HEIGHT ? tiles[row+1][col] : null, pos: [row+1, col], dir: 'S'},
+              {tile: tiles[row][col-1], pos: [row, col-1], dir: 'W'},
+              {tile: tiles[row][col+1], pos: [row, col+1], dir: 'E'}
+            ];
+
+            const filledNeighbors = neighbors.filter(n => n.tile !== null && n.tile !== undefined);
+
+            if (filledNeighbors.length === 4) {
+              // CRITICAL OTG - completely surrounded
+              console.log(`  OTG detected at (${row},${col}) - fixing...`);
+
+              // Find weakest neighbor structure to remove from
+              let smallestStructure = null;
+              let smallestSize = Infinity;
+
+              for (const neighbor of filledNeighbors) {
+                const [nRow, nCol] = neighbor.pos;
+                if (!isValid(nRow, nCol)) continue;
+
+                const structureSize = floodFillSize(tiles, nRow, nCol, neighbor.tile);
+
+                if (structureSize < smallestSize) {
+                  smallestSize = structureSize;
+                  smallestStructure = neighbor;
+                }
+              }
+
+              // Remove the neighbor tile to open the OTG
+              if (smallestStructure) {
+                const [nRow, nCol] = smallestStructure.pos;
+                if (isValid(nRow, nCol)) {
+                  tiles[nRow][nCol] = null;
+                  otgsFixed++;
+                  console.log(`  Fixed by removing tile at (${nRow},${nCol})`);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      console.log(`  Fixed ${otgsFixed} remaining OTGs`);
+      return otgsFixed;
+    };
+
+    // FIX 5: SECTION-BASED DISTRIBUTION TRACKING
+    const SECTIONS_GRID = 3; // 3x3 grid
+    const sectionCoverage = Array(SECTIONS_GRID).fill(null).map(() => Array(SECTIONS_GRID).fill(0));
+    const sectionTotal = Array(SECTIONS_GRID).fill(null).map(() => Array(SECTIONS_GRID).fill(0));
+
+    // Calculate section totals
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        const sectionRow = Math.floor(row / (CANVAS_HEIGHT / SECTIONS_GRID));
+        const sectionCol = Math.floor(col / (CANVAS_WIDTH / SECTIONS_GRID));
+        sectionTotal[Math.min(sectionRow, SECTIONS_GRID-1)][Math.min(sectionCol, SECTIONS_GRID-1)]++;
+      }
+    }
+
+    const getSectionCoverage = (row, col, tiles) => {
+      const sectionRow = Math.floor(row / (CANVAS_HEIGHT / SECTIONS_GRID));
+      const sectionCol = Math.floor(col / (CANVAS_WIDTH / SECTIONS_GRID));
+      const sr = Math.min(sectionRow, SECTIONS_GRID-1);
+      const sc = Math.min(sectionCol, SECTIONS_GRID-1);
+
+      // Count filled tiles in this section
+      let filled = 0;
+      const rowStart = sr * Math.floor(CANVAS_HEIGHT / SECTIONS_GRID);
+      const rowEnd = Math.min(rowStart + Math.floor(CANVAS_HEIGHT / SECTIONS_GRID), CANVAS_HEIGHT);
+      const colStart = sc * Math.floor(CANVAS_WIDTH / SECTIONS_GRID);
+      const colEnd = Math.min(colStart + Math.floor(CANVAS_WIDTH / SECTIONS_GRID), CANVAS_WIDTH);
+
+      for (let r = rowStart; r < rowEnd; r++) {
+        for (let c = colStart; c < colEnd; c++) {
+          if (tiles[r][c] !== null) filled++;
+        }
+      }
+
+      return sectionTotal[sr][sc] > 0 ? filled / sectionTotal[sr][sc] : 0;
+    };
+
     // Place each terrain type
     const terrainConfigs = [
       { type: TERRAIN_TYPES.WALL, targetCount: targetWalls, templates: WALL_TEMPLATES, name: 'WALL' },
@@ -1118,6 +1445,11 @@ const MapGenerator = () => {
       if (type === TERRAIN_TYPES.WATER) {
         console.log(`  Water structures placed: ${waterStructureCount} (max: ${maxWaterStructures})`);
       }
+
+      // FIX 2: After bush placement, merge nearby bushes
+      if (type === TERRAIN_TYPES.GRASS) {
+        mergeNearbyBushes(placedTiles);
+      }
     }
 
     // ===== PHASE 6: SYMMETRY APPLICATION =====
@@ -1127,6 +1459,9 @@ const MapGenerator = () => {
 
     // ===== PHASE 7: FINAL VALIDATION =====
     console.log('\n--- PHASE 7: Final Validation ---');
+
+    // FIX 4: Final comprehensive OTG fixing scan (NUCLEAR OPTION)
+    fixAllRemainingOTGs(placedTiles);
 
     // 0. STRICT SYMMETRY VALIDATION AND CORRECTION
     let symmetryErrors = 0;
@@ -1383,6 +1718,23 @@ const MapGenerator = () => {
     }
 
     console.log(`Structure size violations: ${structureSizeViolations} (should be 0)`);
+
+    // Bush size statistics after merging
+    const bushStructuresAfterMerge = identifyAllStructures(placedTiles, TERRAIN_TYPES.GRASS);
+    const bushSizes = bushStructuresAfterMerge.map(s => s.length);
+    const avgBushSize = bushSizes.length > 0 ? (bushSizes.reduce((sum, s) => sum + s, 0) / bushSizes.length).toFixed(1) : 0;
+    const largeBushes = bushSizes.filter(s => s > 20).length;
+    const mediumBushes = bushSizes.filter(s => s >= 12 && s <= 20).length;
+    const smallBushes = bushSizes.filter(s => s < 12).length;
+    const tinyBushes = bushSizes.filter(s => s < 6).length;
+
+    console.log('\nBush statistics after merging:');
+    console.log(`  Total bush structures: ${bushStructuresAfterMerge.length}`);
+    console.log(`  Average bush size: ${avgBushSize} tiles`);
+    console.log(`  Large bushes (>20 tiles): ${largeBushes}`);
+    console.log(`  Medium bushes (12-20 tiles): ${mediumBushes}`);
+    console.log(`  Small bushes (6-11 tiles): ${smallBushes}`);
+    console.log(`  Tiny bushes (<6 tiles): ${tinyBushes} (should be low)`);
 
     // Final terrain distribution
     let wallCount = 0, waterCount = 0, grassCount = 0, emptyCount = 0;
