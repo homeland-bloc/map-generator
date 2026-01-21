@@ -221,7 +221,6 @@ const MapGenerator = () => {
     const MID_STRIP_START = 11;
     const MID_STRIP_END = 21;
     const isInMidStrip = (row) => row >= MID_STRIP_START && row <= MID_STRIP_END;
-    const isValid = (row, col) => row >= 0 && row < CANVAS_HEIGHT && col >= 0 && col < CANVAS_WIDTH;
 
     // ===== PHASE 1: DEFINE STRUCTURE TEMPLATES =====
     console.log('\n--- PHASE 1: Structure Templates ---');
@@ -2271,6 +2270,9 @@ const MapGenerator = () => {
 
     setTiles(placedTiles);
   };
+
+  // Helper function to check if coordinates are within map bounds
+  const isValid = (row, col) => row >= 0 && row < CANVAS_HEIGHT && col >= 0 && col < CANVAS_WIDTH;
 
   // ENHANCED DIAGONAL OTG DETECTION - Detects ALL types of OTGs including edge cases
   const detectAllOTGs = (tiles) => {
