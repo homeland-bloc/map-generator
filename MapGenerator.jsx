@@ -36,6 +36,7 @@ const MapGenerator = () => {
   const [slidersOpen, setSlidersOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [mapCode, setMapCode] = useState('');
+  const [showOTGDebug, setShowOTGDebug] = useState(false);
   const canvasRef = useRef(null);
 
   const handleTileClick = (row, col) => {
@@ -2517,42 +2518,73 @@ const MapGenerator = () => {
 
       <div className="relative z-10 flex items-start justify-center gap-4 p-4 max-w-7xl mx-auto">
         <div className="flex flex-col items-center gap-4 flex-1">
-          <div
-            ref={canvasRef}
-            className="inline-block border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
-            style={{
-              background: '#FFE4B3',
-              userSelect: 'none'
-            }}
-          >
-            {tiles.map((row, rowIndex) => (
-              <div key={rowIndex} className="flex">
-                {row.map((tile, colIndex) => {
-                  const isEvenRow = rowIndex % 2 === 0;
-                  const isEvenCol = colIndex % 2 === 0;
-                  const isLightSquare = (isEvenRow && isEvenCol) || (!isEvenRow && !isEvenCol);
+          <div className="relative inline-block">
+            <div
+              ref={canvasRef}
+              className="inline-block border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
+              style={{
+                background: '#FFE4B3',
+                userSelect: 'none'
+              }}
+            >
+              {tiles.map((row, rowIndex) => (
+                <div key={rowIndex} className="flex">
+                  {row.map((tile, colIndex) => {
+                    const isEvenRow = rowIndex % 2 === 0;
+                    const isEvenCol = colIndex % 2 === 0;
+                    const isLightSquare = (isEvenRow && isEvenCol) || (!isEvenRow && !isEvenCol);
 
-                  return (
+                    return (
+                      <div
+                        key={`${rowIndex}-${colIndex}`}
+                        onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
+                        onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
+                        onTouchStart={(e) => {
+                          e.preventDefault();
+                          handleMouseDown(rowIndex, colIndex);
+                        }}
+                        className="cursor-pointer touch-none"
+                        style={{
+                          width: TILE_SIZE + 'px',
+                          height: TILE_SIZE + 'px',
+                          backgroundColor: tile || (isLightSquare ? '#FFE4B3' : '#FFDAA3'),
+                          border: '0.5px solid rgba(0,0,0,0.05)'
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+
+            {/* OTG Debug Overlay */}
+            {showOTGDebug && (() => {
+              const otgs = detectAllOTGs(tiles);
+              return (
+                <div
+                  className="absolute top-0 left-0 pointer-events-none"
+                  style={{
+                    width: CANVAS_WIDTH * TILE_SIZE + 'px',
+                    height: CANVAS_HEIGHT * TILE_SIZE + 'px'
+                  }}
+                >
+                  {otgs.map((otg, index) => (
                     <div
-                      key={`${rowIndex}-${colIndex}`}
-                      onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
-                      onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
-                      onTouchStart={(e) => {
-                        e.preventDefault();
-                        handleMouseDown(rowIndex, colIndex);
-                      }}
-                      className="cursor-pointer touch-none"
+                      key={index}
                       style={{
+                        position: 'absolute',
+                        left: otg.col * TILE_SIZE + 'px',
+                        top: otg.row * TILE_SIZE + 'px',
                         width: TILE_SIZE + 'px',
                         height: TILE_SIZE + 'px',
-                        backgroundColor: tile || (isLightSquare ? '#FFE4B3' : '#FFDAA3'),
-                        border: '0.5px solid rgba(0,0,0,0.05)'
+                        backgroundColor: 'rgba(255, 0, 0, 0.5)',
+                        border: '1px solid rgba(255, 0, 0, 0.8)'
                       }}
                     />
-                  );
-                })}
-              </div>
-            ))}
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           <button
@@ -2755,15 +2787,29 @@ const MapGenerator = () => {
               <button
                 onClick={() => setMirrorDiagonal(!mirrorDiagonal)}
                 className={`w-10 h-10 rounded-lg transition-all flex items-center justify-center text-lg ${
-                  mirrorDiagonal 
-                    ? 'bg-purple-600 text-white' 
+                  mirrorDiagonal
+                    ? 'bg-purple-600 text-white'
                     : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
                 }`}
                 title="Mirror Central"
               >
                 🔄
               </button>
-              
+
+              <div className="w-full border-t border-purple-400 border-opacity-30 my-1" />
+
+              <button
+                onClick={() => setShowOTGDebug(!showOTGDebug)}
+                className={`w-10 h-10 rounded-lg transition-all flex items-center justify-center text-xs font-bold ${
+                  showOTGDebug
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}
+                title="Show OTGs (Debug Mode)"
+              >
+                OTG
+              </button>
+
               <div className="w-full border-t border-purple-400 border-opacity-30 my-1" />
               
               <button
