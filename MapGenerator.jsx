@@ -93,7 +93,7 @@ const MapGenerator = () => {
 
   // Map Code conversion functions
   const tilesToMapCode = (tiles) => {
-    let code = '```\n';
+    let code = '';
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       for (let col = 0; col < CANVAS_WIDTH; col++) {
         const tile = tiles[row][col];
@@ -109,8 +109,8 @@ const MapGenerator = () => {
       }
       code += '\n';
     }
-    code += '```';
-    return code;
+    // Remove trailing newline
+    return code.trimEnd();
   };
 
   const mapCodeToTiles = (code) => {
@@ -1062,8 +1062,18 @@ const MapGenerator = () => {
               }
             }
 
-            // CASE 5: 1-tile corridors (filled on opposite sides)
-            if ((N !== null && S !== null) || (E !== null && W !== null)) {
+            // CASE 5: 1-tile corridors and sandwich patterns (filled on opposite sides)
+            // Check for walls/water on BOTH opposite sides (sandwich pattern)
+            const isSandwichedNS = (N === TERRAIN_TYPES.WALL || N === TERRAIN_TYPES.WATER || N === 'EDGE') &&
+                                   (S === TERRAIN_TYPES.WALL || S === TERRAIN_TYPES.WATER || S === 'EDGE');
+            const isSandwichedEW = (E === TERRAIN_TYPES.WALL || E === TERRAIN_TYPES.WATER || E === 'EDGE') &&
+                                   (W === TERRAIN_TYPES.WALL || W === TERRAIN_TYPES.WATER || W === 'EDGE');
+
+            if (isSandwichedNS || isSandwichedEW) {
+              // This is a true sandwich pattern - critical OTG
+              otgs.push({row, col, type: 'SANDWICH_PATTERN', severity: 'critical'});
+            } else if ((N !== null && S !== null) || (E !== null && W !== null)) {
+              // General 1-tile corridor
               otgs.push({row, col, type: '1-tile corridor', severity: 'medium'});
             }
           }
@@ -1849,6 +1859,109 @@ const MapGenerator = () => {
       return asymmetriesFixed;
     };
 
+    // ENCLOSED SPACE DETECTION AND FILLING - Fill trapped empty spaces
+    const detectAndFillEnclosedSpaces = (tiles) => {
+      console.log('\n--- Enclosed Space Detection ---');
+
+      // Create a map to track accessible (reachable from edges) empty tiles
+      const accessible = Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(false));
+
+      // Flood fill from all 4 edges to mark accessible empty tiles
+      const floodFillFromEdge = (startRow, startCol) => {
+        if (startRow < 0 || startRow >= CANVAS_HEIGHT || startCol < 0 || startCol >= CANVAS_WIDTH) {
+          return;
+        }
+
+        // Only flood fill through empty tiles
+        if (tiles[startRow][startCol] !== null) {
+          return;
+        }
+
+        // Already visited
+        if (accessible[startRow][startCol]) {
+          return;
+        }
+
+        // Mark as accessible
+        accessible[startRow][startCol] = true;
+
+        // Recursively flood fill to orthogonal neighbors
+        floodFillFromEdge(startRow - 1, startCol); // North
+        floodFillFromEdge(startRow + 1, startCol); // South
+        floodFillFromEdge(startRow, startCol - 1); // West
+        floodFillFromEdge(startRow, startCol + 1); // East
+      };
+
+      // Start flood fill from all edge tiles
+      console.log('  Starting flood fill from edges...');
+
+      // Top and bottom edges
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        floodFillFromEdge(0, col); // Top edge
+        floodFillFromEdge(CANVAS_HEIGHT - 1, col); // Bottom edge
+      }
+
+      // Left and right edges (skip corners already processed)
+      for (let row = 1; row < CANVAS_HEIGHT - 1; row++) {
+        floodFillFromEdge(row, 0); // Left edge
+        floodFillFromEdge(row, CANVAS_WIDTH - 1); // Right edge
+      }
+
+      // Find all enclosed empty tiles (empty but not accessible)
+      const enclosedTiles = [];
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          if (tiles[row][col] === null && !accessible[row][col]) {
+            enclosedTiles.push({row, col});
+          }
+        }
+      }
+
+      if (enclosedTiles.length === 0) {
+        console.log('  ✓ No enclosed spaces found');
+        return 0;
+      }
+
+      console.log(`  Found ${enclosedTiles.length} enclosed empty tiles`);
+
+      // Fill each enclosed tile with most common terrain type among neighbors
+      let filledCount = 0;
+      for (const {row, col} of enclosedTiles) {
+        // Get orthogonal neighbors
+        const neighbors = [];
+        if (row > 0) neighbors.push(tiles[row - 1][col]); // North
+        if (row < CANVAS_HEIGHT - 1) neighbors.push(tiles[row + 1][col]); // South
+        if (col > 0) neighbors.push(tiles[row][col - 1]); // West
+        if (col < CANVAS_WIDTH - 1) neighbors.push(tiles[row][col + 1]); // East
+
+        // Count terrain types (ignore null/empty neighbors)
+        const terrainCounts = {};
+        for (const terrain of neighbors) {
+          if (terrain !== null) {
+            terrainCounts[terrain] = (terrainCounts[terrain] || 0) + 1;
+          }
+        }
+
+        // Find most common terrain type
+        let mostCommonTerrain = TERRAIN_TYPES.WALL; // Default to wall
+        let maxCount = 0;
+
+        for (const [terrain, count] of Object.entries(terrainCounts)) {
+          if (count > maxCount) {
+            maxCount = count;
+            mostCommonTerrain = terrain;
+          }
+        }
+
+        // Fill the enclosed tile
+        tiles[row][col] = mostCommonTerrain;
+        filledCount++;
+      }
+
+      console.log(`  ✓ Filled ${filledCount} enclosed empty tiles`);
+      return filledCount;
+    };
+
     // FIX 5: SECTION-BASED DISTRIBUTION TRACKING
     const SECTIONS_GRID = 3; // 3x3 grid
     const sectionCoverage = Array(SECTIONS_GRID).fill(null).map(() => Array(SECTIONS_GRID).fill(0));
@@ -2039,8 +2152,11 @@ const MapGenerator = () => {
     // Step 2.5: Aggressive OTG cleanup for stubborn gaps
     const aggressiveRemoved = aggressiveOTGCleanup(placedTiles);
 
-    // Step 3: Fill edge gaps (after OTG fixes, before symmetry)
+    // Step 3: Fill edge gaps (after OTG fixes, before enclosed space detection)
     const edgeGapsFilled = fillEdgeGaps(placedTiles);
+
+    // Step 3.5: Detect and fill enclosed spaces (after OTG fixes, before symmetry)
+    const enclosedSpacesFilled = detectAndFillEnclosedSpaces(placedTiles);
 
     // Step 4: Enforce symmetry as final step (force-correct any asymmetries)
     const asymmetriesFixed = enforceSymmetry(placedTiles);
@@ -2180,6 +2296,7 @@ const MapGenerator = () => {
     console.log('\nPost-Processing Results:');
     console.log(`  Edge tiles removed: ${edgeTilesRemoved}`);
     console.log(`  OTGs fixed: ${totalOTGsFixed}`);
+    console.log(`  Enclosed spaces filled: ${enclosedSpacesFilled}`);
     console.log(`  Asymmetries corrected: ${asymmetriesFixed}`);
     console.log(`  Final OTGs found: ${validationResult.otgsFound} (should be 0)`);
     console.log(`  Final validation: ${validationResult.passed ? '✓ PASSED' : '❌ CHECK NEEDED'}`);
@@ -2541,7 +2658,7 @@ const MapGenerator = () => {
               readOnly
               rows={35}
               className="w-full p-2 rounded bg-gray-900 text-white border border-purple-400 border-opacity-30 resize-none overflow-auto"
-              style={{ fontFamily: 'monospace', fontSize: '8px', lineHeight: '1.2' }}
+              style={{ fontFamily: "'Courier New', 'Courier', monospace", fontSize: '8px', lineHeight: '1.2', whiteSpace: 'pre' }}
               placeholder="Map code will appear here after generation..."
             />
 
