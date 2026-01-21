@@ -34,6 +34,7 @@ const MapGenerator = () => {
   const [mirrorHorizontal, setMirrorHorizontal] = useState(false);
   const [mirrorDiagonal, setMirrorDiagonal] = useState(false);
   const [slidersOpen, setSlidersOpen] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const canvasRef = useRef(null);
 
   const handleTileClick = (row, col) => {
@@ -677,6 +678,35 @@ const MapGenerator = () => {
         }
       }
 
+      // FIX 4: PREVENT CORNER-ONLY TOUCHES - Reject placements that would touch only at corners
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] !== 1) continue;
+
+          const tileRow = row + i;
+          const tileCol = col + j;
+
+          // Get all 8 neighbors
+          const N  = isValid(tileRow-1, tileCol) ? tiles[tileRow-1][tileCol] : null;
+          const S  = isValid(tileRow+1, tileCol) ? tiles[tileRow+1][tileCol] : null;
+          const E  = isValid(tileRow, tileCol+1) ? tiles[tileRow][tileCol+1] : null;
+          const W  = isValid(tileRow, tileCol-1) ? tiles[tileRow][tileCol-1] : null;
+          const NE = isValid(tileRow-1, tileCol+1) ? tiles[tileRow-1][tileCol+1] : null;
+          const NW = isValid(tileRow-1, tileCol-1) ? tiles[tileRow-1][tileCol-1] : null;
+          const SE = isValid(tileRow+1, tileCol+1) ? tiles[tileRow+1][tileCol+1] : null;
+          const SW = isValid(tileRow+1, tileCol-1) ? tiles[tileRow+1][tileCol-1] : null;
+
+          const orthogonalNeighbors = [N, S, E, W].filter(n => n !== null && n === terrainType);
+          const diagonalNeighbors = [NE, NW, SE, SW].filter(n => n !== null && n === terrainType);
+
+          // If has diagonal neighbors but NO orthogonal neighbors: REJECT
+          // This means structure would touch only at corner
+          if (diagonalNeighbors.length > 0 && orthogonalNeighbors.length === 0) {
+            return false; // Would create corner-only touch
+          }
+        }
+      }
+
       // Check 6: STRICT size limits when structures connect
       // Check if template would connect to existing same-terrain structure
       const connectedStructures = new Set();
@@ -833,54 +863,69 @@ const MapGenerator = () => {
       return otgs;
     };
 
-    // BRUTE-FORCE: Detect ALL OTGs across entire map
+    // FIX 1: COMPREHENSIVE DIAGONAL OTG DETECTION - Detects ALL types of OTGs
     const detectAllOTGs = (tiles) => {
       const otgs = [];
 
       // Scan every tile on the map
       for (let row = 0; row < CANVAS_HEIGHT; row++) {
         for (let col = 0; col < CANVAS_WIDTH; col++) {
-          // Type 1: Empty tile with 4 filled orthogonal neighbors (completely trapped)
+          // Only check empty tiles for OTG patterns
           if (tiles[row][col] === null) {
-            const neighbors4 = [
-              [row-1, col],  // North
-              [row+1, col],  // South
-              [row, col-1],  // West
-              [row, col+1]   // East
-            ];
+            // Get all 8 neighbors (treat edges as 'EDGE')
+            const N  = (row > 0) ? tiles[row-1][col] : 'EDGE';
+            const S  = (row < CANVAS_HEIGHT-1) ? tiles[row+1][col] : 'EDGE';
+            const E  = (col < CANVAS_WIDTH-1) ? tiles[row][col+1] : 'EDGE';
+            const W  = (col > 0) ? tiles[row][col-1] : 'EDGE';
+            const NE = (row > 0 && col < CANVAS_WIDTH-1) ? tiles[row-1][col+1] : 'EDGE';
+            const NW = (row > 0 && col > 0) ? tiles[row-1][col-1] : 'EDGE';
+            const SE = (row < CANVAS_HEIGHT-1 && col < CANVAS_WIDTH-1) ? tiles[row+1][col+1] : 'EDGE';
+            const SW = (row < CANVAS_HEIGHT-1 && col > 0) ? tiles[row+1][col-1] : 'EDGE';
 
-            let filledCount = 0;
-            let filledN = false, filledS = false, filledW = false, filledE = false;
+            // Count filled orthogonal neighbors (treat EDGE as filled for border tiles)
+            const orthogonalFilled = [N, S, E, W].filter(t => t !== null && t !== 'EDGE').length;
+            const orthogonalFilledOrEdge = [N, S, E, W].filter(t => t !== null).length;
 
-            for (let i = 0; i < neighbors4.length; i++) {
-              const [r, c] = neighbors4[i];
-              if (isValid(r, c) && tiles[r][c] !== null) {
-                filledCount++;
-                if (i === 0) filledN = true;
-                if (i === 1) filledS = true;
-                if (i === 2) filledW = true;
-                if (i === 3) filledE = true;
-              }
+            // CASE 1: Classic OTG - surrounded by 4 orthogonal
+            if (orthogonalFilled === 4) {
+              otgs.push({row, col, type: 'ORTHOGONAL', severity: 'critical'});
+              continue;
             }
 
-            // CRITICAL OTG: 4 filled neighbors
-            if (filledCount === 4) {
-              otgs.push({row, col, type: 'CRITICAL: 4-way trapped', severity: 'critical'});
+            // CASE 2: Edge OTG - at map edge with 3+ neighbors
+            const isAtEdge = (row === 0 || row === CANVAS_HEIGHT-1 || col === 0 || col === CANVAS_WIDTH-1);
+            if (isAtEdge && orthogonalFilledOrEdge >= 3) {
+              otgs.push({row, col, type: 'EDGE', severity: 'critical'});
+              continue;
             }
-            // LIKELY OTG: 3 filled neighbors (check diagonal for 4th)
-            else if (filledCount === 3) {
-              // Check if there's a diagonal fill making it effectively trapped
-              const diagonals = [
-                [row-1, col-1], [row-1, col+1], [row+1, col-1], [row+1, col+1]
-              ];
-              const filledDiagonals = diagonals.filter(([r, c]) => isValid(r, c) && tiles[r][c] !== null).length;
 
-              if (filledDiagonals >= 1) {
-                otgs.push({row, col, type: 'LIKELY: 3-way + diagonal', severity: 'high'});
-              }
+            // CASE 3: Diagonal squeeze OTG
+            // Pattern: NW and SE both filled, N and W both empty (or S and E both empty)
+            if (NW !== null && NW !== 'EDGE' && SE !== null && SE !== 'EDGE' && N === null && W === null) {
+              otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'high'});
+              continue;
             }
-            // Check for 1-tile corridors (filled on opposite sides)
-            else if ((filledN && filledS) || (filledE && filledW)) {
+
+            if (NE !== null && NE !== 'EDGE' && SW !== null && SW !== 'EDGE' && N === null && E === null) {
+              otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'high'});
+              continue;
+            }
+
+            // CASE 4: Corner touch trap - opposite diagonal corners filled, all orthogonals empty
+            if ((NW !== null && NW !== 'EDGE' && SE !== null && SE !== 'EDGE') &&
+                N === null && W === null && S === null && E === null) {
+              otgs.push({row, col, type: 'CORNER_TRAP', severity: 'high'});
+              continue;
+            }
+
+            if ((NE !== null && NE !== 'EDGE' && SW !== null && SW !== 'EDGE') &&
+                N === null && E === null && S === null && W === null) {
+              otgs.push({row, col, type: 'CORNER_TRAP', severity: 'high'});
+              continue;
+            }
+
+            // CASE 5: 1-tile corridors (filled on opposite sides)
+            if ((N !== null && S !== null) || (E !== null && W !== null)) {
               otgs.push({row, col, type: '1-tile corridor', severity: 'medium'});
             }
           }
@@ -1243,50 +1288,181 @@ const MapGenerator = () => {
       return true;
     };
 
-    // FIX 4: FINAL COMPREHENSIVE OTG FIXING SCAN
+    // FIX 2: AGGRESSIVE OTG FIXING WITH STRUCTURE REMOVAL (5 iterations)
     const fixAllRemainingOTGs = (tiles) => {
-      console.log('\n--- Final OTG Fixing Scan ---');
-      let otgsFixed = 0;
+      console.log('\n--- Aggressive OTG Fixing (5 iterations) ---');
+      const maxIterations = 5;
+      let totalOTGsFixed = 0;
 
-      for (let row = 0; row < CANVAS_HEIGHT; row++) {
-        for (let col = 0; col < CANVAS_WIDTH; col++) {
-          if (tiles[row][col] === null) { // Empty tile
-            const neighbors = [
-              {tile: row-1 >= 0 ? tiles[row-1][col] : null, pos: [row-1, col], dir: 'N'},
-              {tile: row+1 < CANVAS_HEIGHT ? tiles[row+1][col] : null, pos: [row+1, col], dir: 'S'},
-              {tile: tiles[row][col-1], pos: [row, col-1], dir: 'W'},
-              {tile: tiles[row][col+1], pos: [row, col+1], dir: 'E'}
-            ];
+      for (let iteration = 0; iteration < maxIterations; iteration++) {
+        const otgs = detectAllOTGs(tiles);
+        const criticalOTGs = otgs.filter(o => o.severity === 'critical' || o.severity === 'high');
 
-            const filledNeighbors = neighbors.filter(n => n.tile !== null && n.tile !== undefined);
+        if (criticalOTGs.length === 0) {
+          console.log(`  Iteration ${iteration + 1}: No critical/high OTGs found - map is clean!`);
+          break;
+        }
 
-            if (filledNeighbors.length === 4) {
-              // CRITICAL OTG - completely surrounded
-              console.log(`  OTG detected at (${row},${col}) - fixing...`);
+        console.log(`  Iteration ${iteration + 1}: Found ${criticalOTGs.length} critical/high OTGs, fixing...`);
+        let iterationFixes = 0;
 
-              // Find weakest neighbor structure to remove from
-              let smallestStructure = null;
-              let smallestSize = Infinity;
+        for (const otg of criticalOTGs) {
+          // Find adjacent filled tiles to remove
+          const neighbors = [
+            {pos: [otg.row-1, otg.col], exists: otg.row > 0},
+            {pos: [otg.row+1, otg.col], exists: otg.row < CANVAS_HEIGHT-1},
+            {pos: [otg.row, otg.col-1], exists: otg.col > 0},
+            {pos: [otg.row, otg.col+1], exists: otg.col < CANVAS_WIDTH-1}
+          ];
 
-              for (const neighbor of filledNeighbors) {
-                const [nRow, nCol] = neighbor.pos;
-                if (!isValid(nRow, nCol)) continue;
+          // For diagonal OTGs, also check diagonal neighbors
+          if (otg.type.includes('DIAGONAL') || otg.type === 'CORNER_TRAP') {
+            neighbors.push(
+              {pos: [otg.row-1, otg.col-1], exists: otg.row > 0 && otg.col > 0},
+              {pos: [otg.row-1, otg.col+1], exists: otg.row > 0 && otg.col < CANVAS_WIDTH-1},
+              {pos: [otg.row+1, otg.col-1], exists: otg.row < CANVAS_HEIGHT-1 && otg.col > 0},
+              {pos: [otg.row+1, otg.col+1], exists: otg.row < CANVAS_HEIGHT-1 && otg.col < CANVAS_WIDTH-1}
+            );
+          }
 
-                const structureSize = floodFillSize(tiles, nRow, nCol, neighbor.tile);
+          // Find smallest adjacent structure
+          let smallestNeighbor = null;
+          let smallestSize = Infinity;
 
-                if (structureSize < smallestSize) {
-                  smallestSize = structureSize;
-                  smallestStructure = neighbor;
-                }
+          for (const neighbor of neighbors) {
+            if (!neighbor.exists) continue;
+            const [nRow, nCol] = neighbor.pos;
+            if (tiles[nRow][nCol] !== null) {
+              const structureSize = floodFillSize(tiles, nRow, nCol, tiles[nRow][nCol]);
+              if (structureSize < smallestSize) {
+                smallestSize = structureSize;
+                smallestNeighbor = neighbor.pos;
               }
+            }
+          }
 
-              // Remove the neighbor tile to open the OTG
-              if (smallestStructure) {
-                const [nRow, nCol] = smallestStructure.pos;
-                if (isValid(nRow, nCol)) {
-                  tiles[nRow][nCol] = null;
-                  otgsFixed++;
-                  console.log(`  Fixed by removing tile at (${nRow},${nCol})`);
+          // Remove that tile
+          if (smallestNeighbor) {
+            const [nRow, nCol] = smallestNeighbor;
+            tiles[nRow][nCol] = null;
+            iterationFixes++;
+            totalOTGsFixed++;
+          }
+        }
+
+        console.log(`  Iteration ${iteration + 1}: Fixed ${iterationFixes} OTGs`);
+
+        if (iteration === maxIterations - 1 && criticalOTGs.length > 0) {
+          console.warn('  Max OTG fix iterations reached - some OTGs may remain');
+        }
+      }
+
+      console.log(`  Total OTGs fixed: ${totalOTGsFixed}`);
+      return totalOTGsFixed;
+    };
+
+    // FIX 3: EDGE BUFFER ENFORCEMENT - Prevent structures from creating traps along map edges
+    const cleanMapEdges = (tiles) => {
+      console.log('\n--- Cleaning Map Edges ---');
+      let edgeTilesRemoved = 0;
+
+      // Top and bottom edges
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        // Top edge (row 0)
+        if (tiles[0][col] !== null && tiles[1][col] !== null) {
+          // Check if creates 1-tile corridor along edge (different structures)
+          if (tiles[0][col] !== tiles[1][col]) {
+            tiles[0][col] = null;
+            edgeTilesRemoved++;
+          }
+        }
+
+        // Bottom edge (row CANVAS_HEIGHT-1)
+        const bottomRow = CANVAS_HEIGHT - 1;
+        if (tiles[bottomRow][col] !== null && tiles[bottomRow - 1][col] !== null) {
+          if (tiles[bottomRow][col] !== tiles[bottomRow - 1][col]) {
+            tiles[bottomRow][col] = null;
+            edgeTilesRemoved++;
+          }
+        }
+      }
+
+      // Left and right edges
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        // Left edge (col 0)
+        if (tiles[row][0] !== null && tiles[row][1] !== null) {
+          if (tiles[row][0] !== tiles[row][1]) {
+            tiles[row][0] = null;
+            edgeTilesRemoved++;
+          }
+        }
+
+        // Right edge (col CANVAS_WIDTH-1)
+        const rightCol = CANVAS_WIDTH - 1;
+        if (tiles[row][rightCol] !== null && tiles[row][rightCol - 1] !== null) {
+          if (tiles[row][rightCol] !== tiles[row][rightCol - 1]) {
+            tiles[row][rightCol] = null;
+            edgeTilesRemoved++;
+          }
+        }
+      }
+
+      console.log(`  Removed ${edgeTilesRemoved} edge tiles`);
+      return edgeTilesRemoved;
+    };
+
+    // FIX 5: ENFORCE SYMMETRY AS FINAL STEP - Force-correct any asymmetries
+    const enforceSymmetry = (tiles) => {
+      if (!mirrorVertical && !mirrorHorizontal && !mirrorDiagonal) {
+        return 0; // No mirroring enabled
+      }
+
+      console.log('\n--- Enforcing Symmetry ---');
+      let asymmetriesFixed = 0;
+
+      if (mirrorVertical) {
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < Math.floor(CANVAS_WIDTH / 2); col++) {
+            const mirrorCol = CANVAS_WIDTH - 1 - col;
+            const sourceTile = tiles[row][col];
+            if (tiles[row][mirrorCol] !== sourceTile) {
+              tiles[row][mirrorCol] = sourceTile;
+              asymmetriesFixed++;
+            }
+          }
+        }
+      }
+
+      if (mirrorHorizontal) {
+        for (let row = 0; row < Math.floor(CANVAS_HEIGHT / 2); row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            const mirrorRow = CANVAS_HEIGHT - 1 - row;
+            const sourceTile = tiles[row][col];
+            if (tiles[mirrorRow][col] !== sourceTile) {
+              tiles[mirrorRow][col] = sourceTile;
+              asymmetriesFixed++;
+            }
+          }
+        }
+      }
+
+      if (mirrorDiagonal) {
+        const centerRow = Math.floor(CANVAS_HEIGHT / 2);
+        const centerCol = Math.floor(CANVAS_WIDTH / 2);
+
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          for (let col = 0; col < CANVAS_WIDTH; col++) {
+            const offsetRow = row - centerRow;
+            const offsetCol = col - centerCol;
+            const mirrorRow = centerRow - offsetRow;
+            const mirrorCol = centerCol - offsetCol;
+
+            if (mirrorRow >= 0 && mirrorRow < CANVAS_HEIGHT && mirrorCol >= 0 && mirrorCol < CANVAS_WIDTH) {
+              if (row <= mirrorRow || (row === mirrorRow && col <= mirrorCol)) {
+                const sourceTile = tiles[row][col];
+                if (tiles[mirrorRow][mirrorCol] !== sourceTile) {
+                  tiles[mirrorRow][mirrorCol] = sourceTile;
+                  asymmetriesFixed++;
                 }
               }
             }
@@ -1294,8 +1470,8 @@ const MapGenerator = () => {
         }
       }
 
-      console.log(`  Fixed ${otgsFixed} remaining OTGs`);
-      return otgsFixed;
+      console.log(`  Fixed ${asymmetriesFixed} asymmetries`);
+      return asymmetriesFixed;
     };
 
     // FIX 5: SECTION-BASED DISTRIBUTION TRACKING
@@ -1452,112 +1628,22 @@ const MapGenerator = () => {
       }
     }
 
-    // ===== PHASE 6: SYMMETRY APPLICATION =====
-    // NOTE: Symmetry is now applied during placement (atomic validation and placement)
-    console.log('\n--- PHASE 6: Symmetry Application ---');
-    console.log('  Symmetry applied during placement (atomic)');
+    // ===== PHASE 6: POST-PLACEMENT CLEANUP =====
+    console.log('\n--- PHASE 6: Post-Placement Cleanup ---');
+
+    // Step 1: Clean map edges to prevent edge traps
+    const edgeTilesRemoved = cleanMapEdges(placedTiles);
+
+    // Step 2: Fix all remaining OTGs with 5 iterations
+    const totalOTGsFixed = fixAllRemainingOTGs(placedTiles);
+
+    // Step 3: Enforce symmetry as final step (force-correct any asymmetries)
+    const asymmetriesFixed = enforceSymmetry(placedTiles);
 
     // ===== PHASE 7: FINAL VALIDATION =====
     console.log('\n--- PHASE 7: Final Validation ---');
 
-    // FIX 4: Final comprehensive OTG fixing scan (NUCLEAR OPTION)
-    fixAllRemainingOTGs(placedTiles);
-
-    // 0. STRICT SYMMETRY VALIDATION AND CORRECTION
-    let symmetryErrors = 0;
-    const symmetryViolations = [];
-
-    if (mirrorVertical || mirrorHorizontal || mirrorDiagonal) {
-      console.log('  Checking symmetry...');
-
-      if (mirrorVertical) {
-        for (let row = 0; row < CANVAS_HEIGHT; row++) {
-          for (let col = 0; col < Math.floor(CANVAS_WIDTH / 2); col++) {
-            const mirrorCol = CANVAS_WIDTH - 1 - col;
-            if (placedTiles[row][col] !== placedTiles[row][mirrorCol]) {
-              symmetryErrors++;
-              symmetryViolations.push({
-                type: 'vertical',
-                pos1: [row, col],
-                pos2: [row, mirrorCol],
-                val1: placedTiles[row][col],
-                val2: placedTiles[row][mirrorCol]
-              });
-
-              // FORCE CORRECTION: Set both to null (remove asymmetry)
-              placedTiles[row][col] = null;
-              placedTiles[row][mirrorCol] = null;
-            }
-          }
-        }
-      }
-
-      if (mirrorHorizontal) {
-        for (let row = 0; row < Math.floor(CANVAS_HEIGHT / 2); row++) {
-          for (let col = 0; col < CANVAS_WIDTH; col++) {
-            const mirrorRow = CANVAS_HEIGHT - 1 - row;
-            if (placedTiles[row][col] !== placedTiles[mirrorRow][col]) {
-              symmetryErrors++;
-              symmetryViolations.push({
-                type: 'horizontal',
-                pos1: [row, col],
-                pos2: [mirrorRow, col],
-                val1: placedTiles[row][col],
-                val2: placedTiles[mirrorRow][col]
-              });
-
-              // FORCE CORRECTION: Set both to null (remove asymmetry)
-              placedTiles[row][col] = null;
-              placedTiles[mirrorRow][col] = null;
-            }
-          }
-        }
-      }
-
-      if (mirrorDiagonal) {
-        const centerRow = Math.floor(CANVAS_HEIGHT / 2);
-        const centerCol = Math.floor(CANVAS_WIDTH / 2);
-
-        for (let row = 0; row < CANVAS_HEIGHT; row++) {
-          for (let col = 0; col < CANVAS_WIDTH; col++) {
-            const offsetRow = row - centerRow;
-            const offsetCol = col - centerCol;
-            const mirrorRow = centerRow - offsetRow;
-            const mirrorCol = centerCol - offsetCol;
-
-            if (mirrorRow >= 0 && mirrorRow < CANVAS_HEIGHT && mirrorCol >= 0 && mirrorCol < CANVAS_WIDTH) {
-              if (row <= mirrorRow && col <= mirrorCol) { // Check only once per pair
-                if (placedTiles[row][col] !== placedTiles[mirrorRow][mirrorCol]) {
-                  symmetryErrors++;
-                  symmetryViolations.push({
-                    type: 'diagonal',
-                    pos1: [row, col],
-                    pos2: [mirrorRow, mirrorCol],
-                    val1: placedTiles[row][col],
-                    val2: placedTiles[mirrorRow][mirrorCol]
-                  });
-
-                  // FORCE CORRECTION: Set both to null (remove asymmetry)
-                  placedTiles[row][col] = null;
-                  placedTiles[mirrorRow][mirrorCol] = null;
-                }
-              }
-            }
-          }
-        }
-      }
-
-      if (symmetryErrors > 0) {
-        console.log(`  ERROR: Found ${symmetryErrors} symmetry violations - CORRECTED by removing mismatched tiles`);
-        for (const violation of symmetryViolations.slice(0, 5)) { // Log first 5
-          console.log(`    ${violation.type}: (${violation.pos1}) vs (${violation.pos2})`);
-        }
-      } else {
-        console.log(`  Symmetry verification: PERFECT (0 errors)`);
-      }
-    }
-
-    // 1. Scan for OTGs (should be 0)
+    // Scan for remaining OTGs (should be 0)
     let otgCount = 0;
 
     // Check for 1-tile gaps surrounded by filled
@@ -1652,8 +1738,12 @@ const MapGenerator = () => {
     console.log(`Mid strip coverage: ${((midFilled / midTotal) * 100).toFixed(1)}%`);
     console.log(`Backside coverage: ${((backsideFilled / backsideTotal) * 100).toFixed(1)}%`);
 
-    console.log(`OTGs found: ${otgCount} (should be 0)`);
-    console.log(`Symmetry errors after correction: ${symmetryErrors > 0 ? 'CORRECTED' : '0'} (should be 0)`);
+    console.log('\nPost-Processing Results:');
+    console.log(`  Edge tiles removed: ${edgeTilesRemoved}`);
+    console.log(`  OTGs fixed: ${totalOTGsFixed}`);
+    console.log(`  Asymmetries corrected: ${asymmetriesFixed}`);
+    console.log(`  Final OTGs found: ${otgCount} (should be 0)`);
+    console.log(`  Final validation: ${otgCount === 0 && asymmetriesFixed === 0 ? 'PASSED' : 'CHECK NEEDED'}`);
 
     // CRITICAL VALIDATION: Check structure sizes
     let structureSizeViolations = 0;
@@ -1760,6 +1850,23 @@ const MapGenerator = () => {
     console.log('==========================================\n');
 
     setTiles(placedTiles);
+  };
+
+  // FIX 6: Loading modal wrapper to prevent button spam
+  const handleGenerateMap = async () => {
+    setIsGenerating(true);
+
+    try {
+      // Small delay to allow UI to update
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Run the actual generation
+      generateRandomMap();
+    } catch (error) {
+      console.error("Map generation error:", error);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const clearCanvas = () => {
@@ -1881,11 +1988,14 @@ const MapGenerator = () => {
           </div>
 
           <button
-            onClick={generateRandomMap}
-            className="w-full max-w-md bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            onClick={handleGenerateMap}
+            disabled={isGenerating}
+            className={`w-full max-w-md bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors ${
+              isGenerating ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
             <span style={{ fontSize: '20px' }}>🪄</span>
-            Generate Map
+            {isGenerating ? 'Generating...' : 'Generate Map'}
           </button>
 
           <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-2 w-full max-w-md backdrop-blur-sm">
@@ -2080,6 +2190,17 @@ const MapGenerator = () => {
           </div>
         </div>
       </div>
+
+      {/* FIX 6: Loading Modal */}
+      {isGenerating && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+          <div className="bg-purple-900 border-2 border-purple-400 rounded-lg p-8 flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-purple-400 border-t-transparent"></div>
+            <p className="text-white text-xl font-semibold">Generating Map...</p>
+            <p className="text-purple-300 text-sm">Please wait</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
