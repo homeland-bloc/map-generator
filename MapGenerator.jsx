@@ -2354,71 +2354,23 @@ const MapGenerator = () => {
             }
           }
 
-          // CASE 2: Diagonal squeeze patterns
-          // Check if this tile is trapped by diagonal obstacles
+          // CASE 2: THE KEY PATTERN - Diagonal obstacles on opposite corners
+          // In games with only orthogonal movement, diagonal obstacles create OTGs
+          // This is THE most important check
+          const hasNW = isObstacle(NW);
+          const hasNE = isObstacle(NE);
+          const hasSE = isObstacle(SE);
+          const hasSW = isObstacle(SW);
 
-          // If 2 or more diagonal obstacles, check if they form a squeeze pattern
-          if (diagonalFilled >= 2) {
-            // Check opposite diagonal pairs
-            const hasNW_SE = isObstacle(NW) && isObstacle(SE);
-            const hasNE_SW = isObstacle(NE) && isObstacle(SW);
+          // Check opposite diagonal pairs - if EITHER pair has obstacles, it's an OTG
+          if (hasNW && hasSE) {
+            otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'critical'});
+            continue;
+          }
 
-            // Both diagonal pairs blocked = cross pattern, definitely OTG
-            if (hasNW_SE && hasNE_SW) {
-              otgs.push({row, col, type: 'DIAGONAL_CROSS', severity: 'critical'});
-              continue;
-            }
-
-            // One diagonal pair blocked = potential OTG
-            // Check if the orthogonal exits are also blocked
-            if (hasNW_SE) {
-              // NW-SE diagonal blocked, check if N/S or W/E are also blocked
-              const northSouthBlocked = isObstacle(N) && isObstacle(S);
-              const westEastBlocked = isObstacle(W) && isObstacle(E);
-
-              if (northSouthBlocked || westEastBlocked) {
-                otgs.push({row, col, type: 'DIAGONAL_NW_SE_SQUEEZE', severity: 'critical'});
-                continue;
-              }
-            }
-
-            if (hasNE_SW) {
-              // NE-SW diagonal blocked, check if N/S or W/E are also blocked
-              const northSouthBlocked = isObstacle(N) && isObstacle(S);
-              const westEastBlocked = isObstacle(W) && isObstacle(E);
-
-              if (northSouthBlocked || westEastBlocked) {
-                otgs.push({row, col, type: 'DIAGONAL_NE_SW_SQUEEZE', severity: 'critical'});
-                continue;
-              }
-            }
-
-            // Check for L-shaped diagonal traps (adjacent diagonals)
-            // Example: obstacles at NW and NE, with N also blocked
-            if (isObstacle(NW) && isObstacle(NE)) {
-              if (isObstacle(N)) {
-                otgs.push({row, col, type: 'DIAGONAL_L_TRAP', severity: 'critical'});
-                continue;
-              }
-            }
-            if (isObstacle(SE) && isObstacle(SW)) {
-              if (isObstacle(S)) {
-                otgs.push({row, col, type: 'DIAGONAL_L_TRAP', severity: 'critical'});
-                continue;
-              }
-            }
-            if (isObstacle(NW) && isObstacle(SW)) {
-              if (isObstacle(W)) {
-                otgs.push({row, col, type: 'DIAGONAL_L_TRAP', severity: 'critical'});
-                continue;
-              }
-            }
-            if (isObstacle(NE) && isObstacle(SE)) {
-              if (isObstacle(E)) {
-                otgs.push({row, col, type: 'DIAGONAL_L_TRAP', severity: 'critical'});
-                continue;
-              }
-            }
+          if (hasNE && hasSW) {
+            otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'critical'});
+            continue;
           }
 
           // CASE 3: Edge cases - only check if actually trapped by obstacles at the edge
