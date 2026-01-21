@@ -93,27 +93,34 @@ const MapGenerator = () => {
 
   // Map Code conversion functions
   const tilesToMapCode = (tiles) => {
-    let code = '';
+    let code = '```\n';
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       for (let col = 0; col < CANVAS_WIDTH; col++) {
         const tile = tiles[row][col];
         if (tile === TERRAIN_TYPES.WALL) {
-          code += '⬛';
+          code += 'w';
         } else if (tile === TERRAIN_TYPES.WATER) {
-          code += '🟦';
+          code += 'a';
         } else if (tile === TERRAIN_TYPES.GRASS) {
-          code += '🟩';
+          code += 'b';
         } else {
-          code += '⬜';
+          code += '.';
         }
       }
       code += '\n';
     }
-    return code.trim();
+    code += '```';
+    return code;
   };
 
   const mapCodeToTiles = (code) => {
-    const lines = code.trim().split('\n');
+    // Remove markdown code block backticks if present
+    let cleanedCode = code.trim();
+    if (cleanedCode.startsWith('```')) {
+      cleanedCode = cleanedCode.replace(/^```\n?/, '').replace(/```$/, '').trim();
+    }
+
+    const lines = cleanedCode.split('\n');
     if (lines.length !== CANVAS_HEIGHT) {
       alert(`Invalid map code: Expected ${CANVAS_HEIGHT} rows, got ${lines.length}`);
       return null;
@@ -123,8 +130,7 @@ const MapGenerator = () => {
 
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       const line = lines[row];
-      // Count emojis properly (some emojis are 2 characters)
-      const chars = Array.from(line);
+      const chars = line.split('');
 
       if (chars.length !== CANVAS_WIDTH) {
         alert(`Invalid map code: Row ${row + 1} has ${chars.length} characters, expected ${CANVAS_WIDTH}`);
@@ -133,13 +139,13 @@ const MapGenerator = () => {
 
       for (let col = 0; col < CANVAS_WIDTH; col++) {
         const char = chars[col];
-        if (char === '⬛') {
+        if (char === 'w') {
           newTiles[row][col] = TERRAIN_TYPES.WALL;
-        } else if (char === '🟦') {
+        } else if (char === 'a') {
           newTiles[row][col] = TERRAIN_TYPES.WATER;
-        } else if (char === '🟩') {
+        } else if (char === 'b') {
           newTiles[row][col] = TERRAIN_TYPES.GRASS;
-        } else if (char === '⬜') {
+        } else if (char === '.') {
           newTiles[row][col] = null;
         } else {
           alert(`Invalid character "${char}" at row ${row + 1}, col ${col + 1}`);
@@ -2285,9 +2291,12 @@ const MapGenerator = () => {
     setTiles(placedTiles);
   };
 
-  // FIX 6: Loading modal wrapper to prevent button spam
+  // FIX 6: Loading modal wrapper to prevent button spam with minimum display time
   const handleGenerateMap = async () => {
+    // Set loading state BEFORE any generation logic starts
     setIsGenerating(true);
+    const startTime = Date.now();
+    const minDisplayTime = 900; // 900ms minimum display time
 
     try {
       // Small delay to allow UI to update
@@ -2295,6 +2304,15 @@ const MapGenerator = () => {
 
       // Run the actual generation
       generateRandomMap();
+
+      // Calculate remaining time to meet minimum display duration
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(0, minDisplayTime - elapsed);
+
+      // Wait for remaining time to ensure modal is visible for minimum duration
+      if (remainingTime > 0) {
+        await new Promise(resolve => setTimeout(resolve, remainingTime));
+      }
     } catch (error) {
       console.error("Map generation error:", error);
     } finally {
@@ -2510,38 +2528,30 @@ const MapGenerator = () => {
             )}
           </div>
 
-          {/* Map Code Export/Import Section */}
+          {/* Map Code Export Section */}
           <div className="bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg w-full max-w-md backdrop-blur-sm p-4">
             <div className="flex items-center gap-2 mb-3">
               <span style={{ fontSize: '20px' }}>📋</span>
-              <h3 className="text-white font-semibold">Map Code</h3>
+              <h3 className="text-white font-semibold">Map Code (for sharing)</h3>
             </div>
 
             <textarea
               id="map-code-textarea"
               value={mapCode}
-              onChange={(e) => setMapCode(e.target.value)}
-              className="w-full h-24 p-2 rounded bg-gray-900 text-white text-xs border border-purple-400 border-opacity-30 resize-none overflow-auto"
-              style={{ fontFamily: 'monospace' }}
+              readOnly
+              rows={35}
+              className="w-full p-2 rounded bg-gray-900 text-white border border-purple-400 border-opacity-30 resize-none overflow-auto"
+              style={{ fontFamily: 'monospace', fontSize: '8px', lineHeight: '1.2' }}
               placeholder="Map code will appear here after generation..."
             />
 
-            <div className="flex gap-2 mt-3">
-              <button
-                onClick={copyMapCode}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
-              >
-                <span style={{ fontSize: '16px' }}>📋</span>
-                Copy Map Code
-              </button>
-              <button
-                onClick={importMapCode}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
-              >
-                <span style={{ fontSize: '16px' }}>📥</span>
-                Import Map Code
-              </button>
-            </div>
+            <button
+              onClick={copyMapCode}
+              className="w-full mt-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <span style={{ fontSize: '16px' }}>📋</span>
+              Copy Map Code
+            </button>
           </div>
         </div>
 
