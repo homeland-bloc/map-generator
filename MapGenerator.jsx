@@ -965,143 +965,6 @@ const MapGenerator = () => {
       return otgs;
     };
 
-    // FIX 1: ENHANCED DIAGONAL OTG DETECTION - Detects ALL types of OTGs including edge cases
-    const detectAllOTGs = (tiles) => {
-      const otgs = [];
-
-      // Scan every tile on the map
-      for (let row = 0; row < CANVAS_HEIGHT; row++) {
-        for (let col = 0; col < CANVAS_WIDTH; col++) {
-          // Only check empty tiles for OTG patterns
-          if (tiles[row][col] === null) {
-            // Get all 8 neighbors (treat out-of-bounds as 'EDGE' for edge detection)
-            const N  = (row > 0) ? tiles[row-1][col] : 'EDGE';
-            const S  = (row < CANVAS_HEIGHT-1) ? tiles[row+1][col] : 'EDGE';
-            const E  = (col < CANVAS_WIDTH-1) ? tiles[row][col+1] : 'EDGE';
-            const W  = (col > 0) ? tiles[row][col-1] : 'EDGE';
-            const NE = (row > 0 && col < CANVAS_WIDTH-1) ? tiles[row-1][col+1] : 'EDGE';
-            const NW = (row > 0 && col > 0) ? tiles[row-1][col-1] : 'EDGE';
-            const SE = (row < CANVAS_HEIGHT-1 && col < CANVAS_WIDTH-1) ? tiles[row+1][col+1] : 'EDGE';
-            const SW = (row < CANVAS_HEIGHT-1 && col > 0) ? tiles[row+1][col-1] : 'EDGE';
-
-            // Count filled neighbors (EDGE counts as filled for border calculations)
-            const orthogonalFilled = [N, S, E, W].filter(t => t !== null && t !== 'EDGE').length;
-            const orthogonalFilledOrEdge = [N, S, E, W].filter(t => t !== null).length;
-            const allFilled = [N, S, E, W, NE, NW, SE, SW].filter(t => t !== null && t !== 'EDGE').length;
-
-            // CASE 1: Classic orthogonal OTG (surrounded by 4 sides)
-            if (orthogonalFilled === 4) {
-              otgs.push({row, col, type: 'ORTHOGONAL_SURROUNDED', severity: 'critical'});
-              continue;
-            }
-
-            // CASE 2: Diagonal squeeze patterns (most commonly missed)
-            // Pattern A: NW and SE filled, N and W empty/edge (diagonal trap)
-            if ((NW !== null && NW !== 'EDGE') && (SE !== null && SE !== 'EDGE')) {
-              if ((N === null || N === 'EDGE') && (W === null || W === 'EDGE')) {
-                otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'critical'});
-                continue;
-              }
-            }
-
-            // Pattern B: NE and SW filled, N and E empty/edge (diagonal trap)
-            if ((NE !== null && NE !== 'EDGE') && (SW !== null && SW !== 'EDGE')) {
-              if ((N === null || N === 'EDGE') && (E === null || E === 'EDGE')) {
-                otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'critical'});
-                continue;
-              }
-            }
-
-            // Pattern C: SE and NW filled from other direction
-            if ((NW !== null && NW !== 'EDGE') && (SE !== null && SE !== 'EDGE')) {
-              if ((S === null || S === 'EDGE') && (E === null || E === 'EDGE')) {
-                otgs.push({row, col, type: 'DIAGONAL_SE_NW', severity: 'critical'});
-                continue;
-              }
-            }
-
-            // Pattern D: SW and NE filled from other direction
-            if ((NE !== null && NE !== 'EDGE') && (SW !== null && SW !== 'EDGE')) {
-              if ((S === null || S === 'EDGE') && (W === null || W === 'EDGE')) {
-                otgs.push({row, col, type: 'DIAGONAL_SW_NE', severity: 'critical'});
-                continue;
-              }
-            }
-
-            // CASE 3: Edge OTGs (trapped against map boundary)
-            const isAtEdge = (row === 0 || row === CANVAS_HEIGHT-1 || col === 0 || col === CANVAS_WIDTH-1);
-
-            if (isAtEdge) {
-              // Count only the valid neighbors (not out-of-bounds)
-              const validOrthogonalNeighbors = [];
-              if (row > 0) validOrthogonalNeighbors.push(N);
-              if (row < CANVAS_HEIGHT-1) validOrthogonalNeighbors.push(S);
-              if (col > 0) validOrthogonalNeighbors.push(W);
-              if (col < CANVAS_WIDTH-1) validOrthogonalNeighbors.push(E);
-
-              const filledValidNeighbors = validOrthogonalNeighbors.filter(t => t !== null).length;
-
-              // If at edge with all valid neighbors filled (edge acts as wall)
-              if (filledValidNeighbors === validOrthogonalNeighbors.length && validOrthogonalNeighbors.length >= 2) {
-                otgs.push({row, col, type: 'EDGE_TRAPPED', severity: 'critical'});
-                continue;
-              }
-
-              // Corner cases - only 2 valid neighbors but both filled
-              if (validOrthogonalNeighbors.length === 2 && filledValidNeighbors === 2) {
-                otgs.push({row, col, type: 'CORNER_EDGE', severity: 'critical'});
-                continue;
-              }
-            }
-
-            // CASE 4: 3-sided trap with diagonal reinforcement
-            if (orthogonalFilled === 3) {
-              // Check if the diagonals also make this a complete trap
-              if (allFilled >= 6) { // 3 orthogonal + 3+ diagonal
-                otgs.push({row, col, type: 'THREE_SIDED_TRAP', severity: 'high'});
-                continue;
-              }
-            }
-
-            // CASE 5: 1-tile corridors and sandwich patterns (filled on opposite sides)
-            // Check for walls/water on BOTH opposite sides (sandwich pattern)
-            const isSandwichedNS = (N === TERRAIN_TYPES.WALL || N === TERRAIN_TYPES.WATER || N === 'EDGE') &&
-                                   (S === TERRAIN_TYPES.WALL || S === TERRAIN_TYPES.WATER || S === 'EDGE');
-            const isSandwichedEW = (E === TERRAIN_TYPES.WALL || E === TERRAIN_TYPES.WATER || E === 'EDGE') &&
-                                   (W === TERRAIN_TYPES.WALL || W === TERRAIN_TYPES.WATER || W === 'EDGE');
-
-            if (isSandwichedNS || isSandwichedEW) {
-              // This is a true sandwich pattern - critical OTG
-              otgs.push({row, col, type: 'SANDWICH_PATTERN', severity: 'critical'});
-            } else if ((N !== null && S !== null) || (E !== null && W !== null)) {
-              // General 1-tile corridor
-              otgs.push({row, col, type: '1-tile corridor', severity: 'medium'});
-            }
-          }
-
-          // Type 2: 1-tile protrusions of different terrain
-          const tile = tiles[row][col];
-          if (tile !== null) {
-            const neighbors8 = [
-              [row-1,col], [row+1,col], [row,col-1], [row,col+1],
-              [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
-            ].filter(([r, c]) => isValid(r, c));
-
-            const sameTypeNeighbors = neighbors8.filter(([r, c]) => tiles[r][c] === tile);
-            const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
-              tiles[r][c] !== null && tiles[r][c] !== tile
-            );
-
-            if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
-              otgs.push({row, col, type: '1-tile protrusion', severity: 'low'});
-            }
-          }
-        }
-      }
-
-      return otgs;
-    };
-
     // Helper: Undo template placement
     const undoTemplatePlacement = (template, row, col, terrainType, tiles) => {
       const positions = calculateMirrorPositions(template, row, col);
@@ -2407,6 +2270,143 @@ const MapGenerator = () => {
     console.log('==========================================\n');
 
     setTiles(placedTiles);
+  };
+
+  // ENHANCED DIAGONAL OTG DETECTION - Detects ALL types of OTGs including edge cases
+  const detectAllOTGs = (tiles) => {
+    const otgs = [];
+
+    // Scan every tile on the map
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        // Only check empty tiles for OTG patterns
+        if (tiles[row][col] === null) {
+          // Get all 8 neighbors (treat out-of-bounds as 'EDGE' for edge detection)
+          const N  = (row > 0) ? tiles[row-1][col] : 'EDGE';
+          const S  = (row < CANVAS_HEIGHT-1) ? tiles[row+1][col] : 'EDGE';
+          const E  = (col < CANVAS_WIDTH-1) ? tiles[row][col+1] : 'EDGE';
+          const W  = (col > 0) ? tiles[row][col-1] : 'EDGE';
+          const NE = (row > 0 && col < CANVAS_WIDTH-1) ? tiles[row-1][col+1] : 'EDGE';
+          const NW = (row > 0 && col > 0) ? tiles[row-1][col-1] : 'EDGE';
+          const SE = (row < CANVAS_HEIGHT-1 && col < CANVAS_WIDTH-1) ? tiles[row+1][col+1] : 'EDGE';
+          const SW = (row < CANVAS_HEIGHT-1 && col > 0) ? tiles[row+1][col-1] : 'EDGE';
+
+          // Count filled neighbors (EDGE counts as filled for border calculations)
+          const orthogonalFilled = [N, S, E, W].filter(t => t !== null && t !== 'EDGE').length;
+          const orthogonalFilledOrEdge = [N, S, E, W].filter(t => t !== null).length;
+          const allFilled = [N, S, E, W, NE, NW, SE, SW].filter(t => t !== null && t !== 'EDGE').length;
+
+          // CASE 1: Classic orthogonal OTG (surrounded by 4 sides)
+          if (orthogonalFilled === 4) {
+            otgs.push({row, col, type: 'ORTHOGONAL_SURROUNDED', severity: 'critical'});
+            continue;
+          }
+
+          // CASE 2: Diagonal squeeze patterns (most commonly missed)
+          // Pattern A: NW and SE filled, N and W empty/edge (diagonal trap)
+          if ((NW !== null && NW !== 'EDGE') && (SE !== null && SE !== 'EDGE')) {
+            if ((N === null || N === 'EDGE') && (W === null || W === 'EDGE')) {
+              otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'critical'});
+              continue;
+            }
+          }
+
+          // Pattern B: NE and SW filled, N and E empty/edge (diagonal trap)
+          if ((NE !== null && NE !== 'EDGE') && (SW !== null && SW !== 'EDGE')) {
+            if ((N === null || N === 'EDGE') && (E === null || E === 'EDGE')) {
+              otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'critical'});
+              continue;
+            }
+          }
+
+          // Pattern C: SE and NW filled from other direction
+          if ((NW !== null && NW !== 'EDGE') && (SE !== null && SE !== 'EDGE')) {
+            if ((S === null || S === 'EDGE') && (E === null || E === 'EDGE')) {
+              otgs.push({row, col, type: 'DIAGONAL_SE_NW', severity: 'critical'});
+              continue;
+            }
+          }
+
+          // Pattern D: SW and NE filled from other direction
+          if ((NE !== null && NE !== 'EDGE') && (SW !== null && SW !== 'EDGE')) {
+            if ((S === null || S === 'EDGE') && (W === null || W === 'EDGE')) {
+              otgs.push({row, col, type: 'DIAGONAL_SW_NE', severity: 'critical'});
+              continue;
+            }
+          }
+
+          // CASE 3: Edge OTGs (trapped against map boundary)
+          const isAtEdge = (row === 0 || row === CANVAS_HEIGHT-1 || col === 0 || col === CANVAS_WIDTH-1);
+
+          if (isAtEdge) {
+            // Count only the valid neighbors (not out-of-bounds)
+            const validOrthogonalNeighbors = [];
+            if (row > 0) validOrthogonalNeighbors.push(N);
+            if (row < CANVAS_HEIGHT-1) validOrthogonalNeighbors.push(S);
+            if (col > 0) validOrthogonalNeighbors.push(W);
+            if (col < CANVAS_WIDTH-1) validOrthogonalNeighbors.push(E);
+
+            const filledValidNeighbors = validOrthogonalNeighbors.filter(t => t !== null).length;
+
+            // If at edge with all valid neighbors filled (edge acts as wall)
+            if (filledValidNeighbors === validOrthogonalNeighbors.length && validOrthogonalNeighbors.length >= 2) {
+              otgs.push({row, col, type: 'EDGE_TRAPPED', severity: 'critical'});
+              continue;
+            }
+
+            // Corner cases - only 2 valid neighbors but both filled
+            if (validOrthogonalNeighbors.length === 2 && filledValidNeighbors === 2) {
+              otgs.push({row, col, type: 'CORNER_EDGE', severity: 'critical'});
+              continue;
+            }
+          }
+
+          // CASE 4: 3-sided trap with diagonal reinforcement
+          if (orthogonalFilled === 3) {
+            // Check if the diagonals also make this a complete trap
+            if (allFilled >= 6) { // 3 orthogonal + 3+ diagonal
+              otgs.push({row, col, type: 'THREE_SIDED_TRAP', severity: 'high'});
+              continue;
+            }
+          }
+
+          // CASE 5: 1-tile corridors and sandwich patterns (filled on opposite sides)
+          // Check for walls/water on BOTH opposite sides (sandwich pattern)
+          const isSandwichedNS = (N === TERRAIN_TYPES.WALL || N === TERRAIN_TYPES.WATER || N === 'EDGE') &&
+                                 (S === TERRAIN_TYPES.WALL || S === TERRAIN_TYPES.WATER || S === 'EDGE');
+          const isSandwichedEW = (E === TERRAIN_TYPES.WALL || E === TERRAIN_TYPES.WATER || E === 'EDGE') &&
+                                 (W === TERRAIN_TYPES.WALL || W === TERRAIN_TYPES.WATER || W === 'EDGE');
+
+          if (isSandwichedNS || isSandwichedEW) {
+            // This is a true sandwich pattern - critical OTG
+            otgs.push({row, col, type: 'SANDWICH_PATTERN', severity: 'critical'});
+          } else if ((N !== null && S !== null) || (E !== null && W !== null)) {
+            // General 1-tile corridor
+            otgs.push({row, col, type: '1-tile corridor', severity: 'medium'});
+          }
+        }
+
+        // Type 2: 1-tile protrusions of different terrain
+        const tile = tiles[row][col];
+        if (tile !== null) {
+          const neighbors8 = [
+            [row-1,col], [row+1,col], [row,col-1], [row,col+1],
+            [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
+          ].filter(([r, c]) => isValid(r, c));
+
+          const sameTypeNeighbors = neighbors8.filter(([r, c]) => tiles[r][c] === tile);
+          const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
+            tiles[r][c] !== null && tiles[r][c] !== tile
+          );
+
+          if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
+            otgs.push({row, col, type: '1-tile protrusion', severity: 'low'});
+          }
+        }
+      }
+    }
+
+    return otgs;
   };
 
   // FIX 6: Loading modal wrapper to prevent button spam with minimum display time
