@@ -1082,6 +1082,65 @@ const MapGenerator = () => {
       return tilesPlaced;
     };
 
+    // Helper: Fill gaps between mirrored structures
+    const fillMirrorGaps = (template, positions, terrainType, tiles) => {
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
+      let gapsFilled = 0;
+
+      // Check vertical mirror gaps (left-right symmetry)
+      if (mirrorVertical && positions.length >= 2) {
+        const leftPos = positions.find(p => p.col < CANVAS_WIDTH / 2) || positions[0];
+        const rightPos = positions.find(p => p.col >= CANVAS_WIDTH / 2 && p.row === leftPos.row);
+
+        if (rightPos) {
+          const leftEnd = leftPos.col + templateWidth;
+          const rightStart = rightPos.col;
+          const gap = rightStart - leftEnd;
+
+          // If exactly 1 tile gap between mirrored structures, fill it
+          if (gap === 1) {
+            const gapCol = leftEnd;
+            for (let r = leftPos.row; r < leftPos.row + templateHeight; r++) {
+              if (r >= 0 && r < CANVAS_HEIGHT && gapCol >= 0 && gapCol < CANVAS_WIDTH) {
+                if (tiles[r][gapCol] === null) {
+                  tiles[r][gapCol] = terrainType;
+                  gapsFilled++;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Check horizontal mirror gaps (top-bottom symmetry)
+      if (mirrorHorizontal && positions.length >= 2) {
+        const topPos = positions.find(p => p.row < CANVAS_HEIGHT / 2) || positions[0];
+        const bottomPos = positions.find(p => p.row >= CANVAS_HEIGHT / 2 && p.col === topPos.col);
+
+        if (bottomPos) {
+          const topEnd = topPos.row + templateHeight;
+          const bottomStart = bottomPos.row;
+          const gap = bottomStart - topEnd;
+
+          // If exactly 1 tile gap between mirrored structures, fill it
+          if (gap === 1) {
+            const gapRow = topEnd;
+            for (let c = topPos.col; c < topPos.col + templateWidth; c++) {
+              if (gapRow >= 0 && gapRow < CANVAS_HEIGHT && c >= 0 && c < CANVAS_WIDTH) {
+                if (tiles[gapRow][c] === null) {
+                  tiles[gapRow][c] = terrainType;
+                  gapsFilled++;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      return gapsFilled;
+    };
+
     // Helper: Place template with all mirror positions atomically
     const placeTemplate = (template, row, col, terrainType, tiles) => {
       let totalTilesPlaced = 0;
@@ -1093,6 +1152,10 @@ const MapGenerator = () => {
       for (const pos of positions) {
         totalTilesPlaced += placeTemplateAtPosition(template, pos.row, pos.col, terrainType, tiles);
       }
+
+      // Fill gaps between mirrored structures if they're exactly 1 tile apart
+      const mirrorGapsFilled = fillMirrorGaps(template, positions, terrainType, tiles);
+      totalTilesPlaced += mirrorGapsFilled;
 
       return totalTilesPlaced;
     };
@@ -1456,6 +1519,50 @@ const MapGenerator = () => {
       return edgeTilesRemoved;
     };
 
+    // FIX 6: FILL EDGE GAPS - Fill single-tile empty gaps adjacent to terrain on edges
+    const fillEdgeGaps = (tiles) => {
+      console.log('\n--- Filling Edge Gaps ---');
+      let gapsFilled = 0;
+
+      // Top edge (row 0)
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        if (tiles[0][col] === null && tiles[1][col] !== null) {
+          // Empty edge tile with filled tile 1 inward - copy terrain type
+          tiles[0][col] = tiles[1][col];
+          gapsFilled++;
+        }
+      }
+
+      // Bottom edge (row CANVAS_HEIGHT-1 = row 32)
+      const bottomRow = CANVAS_HEIGHT - 1;
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        if (tiles[bottomRow][col] === null && tiles[bottomRow - 1][col] !== null) {
+          tiles[bottomRow][col] = tiles[bottomRow - 1][col];
+          gapsFilled++;
+        }
+      }
+
+      // Left edge (col 0)
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        if (tiles[row][0] === null && tiles[row][1] !== null) {
+          tiles[row][0] = tiles[row][1];
+          gapsFilled++;
+        }
+      }
+
+      // Right edge (col CANVAS_WIDTH-1 = col 20)
+      const rightCol = CANVAS_WIDTH - 1;
+      for (let row = 0; row < CANVAS_HEIGHT; row++) {
+        if (tiles[row][rightCol] === null && tiles[row][rightCol - 1] !== null) {
+          tiles[row][rightCol] = tiles[row][rightCol - 1];
+          gapsFilled++;
+        }
+      }
+
+      console.log(`  Filled ${gapsFilled} edge gaps`);
+      return gapsFilled;
+    };
+
     // FIX 5: ENFORCE SYMMETRY AS FINAL STEP - Force-correct any asymmetries
     const enforceSymmetry = (tiles) => {
       if (!mirrorVertical && !mirrorHorizontal && !mirrorDiagonal) {
@@ -1573,9 +1680,9 @@ const MapGenerator = () => {
         console.log(`Water density setting: ${waterDensity}%`);
         console.log(`Target water tiles: ${targetCount}`);
 
-        if (targetCount < 8) {
-          console.warn('⚠ Water density too low - minimum 8 tiles needed for placement');
-          console.warn('Suggestion: Increase water slider to at least 5%');
+        if (targetCount < 6) {
+          console.warn('⚠ Water density too low - minimum 6 tiles needed for placement');
+          console.warn('Suggestion: Increase water slider to at least 4%');
         }
 
         const waterTemplatesList = Object.keys(templates);
@@ -1585,7 +1692,8 @@ const MapGenerator = () => {
 
       let currentTileCount = 0;
       let attemptCount = 0;
-      const maxAttempts = 5000;
+      // Water placement: 1000 attempts max (fail gracefully), others: 5000
+      const maxAttempts = (type === TERRAIN_TYPES.WATER) ? 1000 : 5000;
 
       // Special handling for water: limit to 2 structures max, mid strip only
       let waterStructureCount = 0;
@@ -1608,8 +1716,8 @@ const MapGenerator = () => {
             break; // Stop placing water
           }
 
-          // Only place water if template is 8+ tiles
-          if (templateSize < 8) {
+          // Only place water if template is 6+ tiles
+          if (templateSize < 6) {
             continue; // Skip small water templates
           }
 
@@ -1705,7 +1813,10 @@ const MapGenerator = () => {
     // Step 2: Fix all remaining OTGs with 5 iterations
     const totalOTGsFixed = fixAllRemainingOTGs(placedTiles);
 
-    // Step 3: Enforce symmetry as final step (force-correct any asymmetries)
+    // Step 3: Fill edge gaps (after OTG fixes, before symmetry)
+    const edgeGapsFilled = fillEdgeGaps(placedTiles);
+
+    // Step 4: Enforce symmetry as final step (force-correct any asymmetries)
     const asymmetriesFixed = enforceSymmetry(placedTiles);
 
     // FIX 4: COMPREHENSIVE FINAL VALIDATION
