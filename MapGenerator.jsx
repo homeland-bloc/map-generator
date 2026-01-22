@@ -2354,23 +2354,39 @@ const MapGenerator = () => {
             }
           }
 
-          // CASE 2: THE KEY PATTERN - Diagonal obstacles on opposite corners
-          // In games with only orthogonal movement, diagonal obstacles create OTGs
-          // This is THE most important check
+          // CASE 2: Diagonal squeeze patterns - CORRECTED LOGIC
+          // A diagonal OTG exists when diagonal obstacles create a squeeze AND orthogonal escape routes are blocked
           const hasNW = isObstacle(NW);
           const hasNE = isObstacle(NE);
           const hasSE = isObstacle(SE);
           const hasSW = isObstacle(SW);
 
-          // Check opposite diagonal pairs - if EITHER pair has obstacles, it's an OTG
+          // Pattern A: NW-SE diagonal squeeze
           if (hasNW && hasSE) {
-            otgs.push({row, col, type: 'DIAGONAL_NW_SE', severity: 'critical'});
-            continue;
+            // Check if BOTH orthogonal escape routes are blocked
+            // Route 1: N AND W both blocked
+            // Route 2: S AND E both blocked
+            const route1Blocked = isObstacle(N) && isObstacle(W);
+            const route2Blocked = isObstacle(S) && isObstacle(E);
+
+            if (route1Blocked || route2Blocked) {
+              otgs.push({row, col, type: 'DIAGONAL_NW_SE_SQUEEZE', severity: 'critical'});
+              continue;
+            }
           }
 
+          // Pattern B: NE-SW diagonal squeeze
           if (hasNE && hasSW) {
-            otgs.push({row, col, type: 'DIAGONAL_NE_SW', severity: 'critical'});
-            continue;
+            // Check if BOTH orthogonal escape routes are blocked
+            // Route 1: N AND E both blocked
+            // Route 2: S AND W both blocked
+            const route1Blocked = isObstacle(N) && isObstacle(E);
+            const route2Blocked = isObstacle(S) && isObstacle(W);
+
+            if (route1Blocked || route2Blocked) {
+              otgs.push({row, col, type: 'DIAGONAL_NE_SW_SQUEEZE', severity: 'critical'});
+              continue;
+            }
           }
 
           // CASE 3: Edge cases - only check if actually trapped by obstacles at the edge
