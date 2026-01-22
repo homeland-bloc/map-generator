@@ -1309,6 +1309,16 @@ const MapGenerator = () => {
       const templateHeight = template.length;
       const templateWidth = template[0].length;
 
+      // Create test grid with template virtually placed
+      const testGrid = tiles.map(r => [...r]);
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            testGrid[row + i][col + j] = TERRAIN_TYPES.WALL; // Placeholder terrain type
+          }
+        }
+      }
+
       // Identify internal corners (tiles with 1 in template that have empty space in template)
       const internalCorners = [];
 
@@ -1345,15 +1355,19 @@ const MapGenerator = () => {
 
         for (const [adjRow, adjCol] of adjacentChecks) {
           if (!isValid(adjRow, adjCol)) continue;
-          if (tiles[adjRow][adjCol] !== null) continue; // Already filled
+          if (testGrid[adjRow][adjCol] !== null) continue; // Already filled
 
-          // Check if this empty tile would become trapped
-          const emptyNeighbors = [
+          // Count how many orthogonal sides are blocked by filled tiles (using test grid)
+          const blockedSides = [
             [adjRow-1, adjCol], [adjRow+1, adjCol],
             [adjRow, adjCol-1], [adjRow, adjCol+1]
-          ].filter(([r, c]) => isValid(r, c) && tiles[r][c] === null).length;
+          ].filter(([r, c]) => {
+            if (!isValid(r, c)) return true; // Edge counts as blocked
+            return testGrid[r][c] !== null; // Filled tile counts as blocked
+          }).length;
 
-          if (emptyNeighbors <= 1) {
+          // Only reject if truly trapped (3+ sides blocked)
+          if (blockedSides >= 3) {
             return false; // Would create OTG at internal corner
           }
         }
@@ -2389,6 +2403,73 @@ const MapGenerator = () => {
             }
           }
 
+          // NEW: 2x2 Corner-Touch Pattern Detection
+          // When two walls touch at a diagonal corner, the other two empty tiles in the 2x2 grid should be OTGs
+          // Example: Walls at NW(row-1,col-1) and SE(row,col) create corner-touch, with current tile and SW being empty
+
+          // Pattern 1: Two adjacent orthogonal obstacles (W+S) with SW diagonal passable
+          // This means walls are at (row,col-1) and (row+1,col), touching at their diagonal corner
+          if (isObstacle(W) && isObstacle(S) && isPassable(SW) && !isObstacle(N) && !isObstacle(E)) {
+            otgs.push({row, col, type: '2x2_CORNER_TOUCH_W_S', severity: 'critical'});
+            continue;
+          }
+
+          // Pattern 2: Two adjacent orthogonal obstacles (W+N) with NW diagonal passable
+          if (isObstacle(W) && isObstacle(N) && isPassable(NW) && !isObstacle(S) && !isObstacle(E)) {
+            otgs.push({row, col, type: '2x2_CORNER_TOUCH_W_N', severity: 'critical'});
+            continue;
+          }
+
+          // Pattern 3: Two adjacent orthogonal obstacles (E+S) with SE diagonal passable
+          if (isObstacle(E) && isObstacle(S) && isPassable(SE) && !isObstacle(N) && !isObstacle(W)) {
+            otgs.push({row, col, type: '2x2_CORNER_TOUCH_E_S', severity: 'critical'});
+            continue;
+          }
+
+          // Pattern 4: Two adjacent orthogonal obstacles (E+N) with NE diagonal passable
+          if (isObstacle(E) && isObstacle(N) && isPassable(NE) && !isObstacle(S) && !isObstacle(W)) {
+            otgs.push({row, col, type: '2x2_CORNER_TOUCH_E_N', severity: 'critical'});
+            continue;
+          }
+
+          // NEW: Wider Diagonal Gap Detection
+          // Check for obstacles that are 2 tiles away diagonally creating a gap
+          if (isValid(row-2, col-2) && isValid(row-2, col) && isValid(row, col-2)) {
+            const obstacleNW2 = isObstacle(tiles[row-2][col-2]);
+            if (obstacleNW2 && hasNW && !isObstacle(N) && !isObstacle(W)) {
+              // Diagonal gap between current tile and obstacle 2 tiles NW
+              otgs.push({row, col, type: 'DIAGONAL_GAP_NW', severity: 'critical'});
+              continue;
+            }
+          }
+
+          if (isValid(row-2, col+2) && isValid(row-2, col) && isValid(row, col+2)) {
+            const obstacleNE2 = isObstacle(tiles[row-2][col+2]);
+            if (obstacleNE2 && hasNE && !isObstacle(N) && !isObstacle(E)) {
+              // Diagonal gap between current tile and obstacle 2 tiles NE
+              otgs.push({row, col, type: 'DIAGONAL_GAP_NE', severity: 'critical'});
+              continue;
+            }
+          }
+
+          if (isValid(row+2, col-2) && isValid(row+2, col) && isValid(row, col-2)) {
+            const obstacleSW2 = isObstacle(tiles[row+2][col-2]);
+            if (obstacleSW2 && hasSW && !isObstacle(S) && !isObstacle(W)) {
+              // Diagonal gap between current tile and obstacle 2 tiles SW
+              otgs.push({row, col, type: 'DIAGONAL_GAP_SW', severity: 'critical'});
+              continue;
+            }
+          }
+
+          if (isValid(row+2, col+2) && isValid(row+2, col) && isValid(row, col+2)) {
+            const obstacleSE2 = isObstacle(tiles[row+2][col+2]);
+            if (obstacleSE2 && hasSE && !isObstacle(S) && !isObstacle(E)) {
+              // Diagonal gap between current tile and obstacle 2 tiles SE
+              otgs.push({row, col, type: 'DIAGONAL_GAP_SE', severity: 'critical'});
+              continue;
+            }
+          }
+
           // CASE 3: Edge cases - only check if actually trapped by obstacles at the edge
           const isAtEdge = (row === 0 || row === CANVAS_HEIGHT-1 || col === 0 || col === CANVAS_WIDTH-1);
 
@@ -2431,8 +2512,9 @@ const MapGenerator = () => {
           ].filter(([r, c]) => isValid(r, c));
 
           const sameTypeNeighbors = neighbors8.filter(([r, c]) => tiles[r][c] === tile);
+          // Only count OBSTACLES (WALL or WATER) as different types, not GRASS
           const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
-            tiles[r][c] !== null && tiles[r][c] !== tile
+            isObstacle(tiles[r][c]) && tiles[r][c] !== tile
           );
 
           if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
