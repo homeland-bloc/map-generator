@@ -2288,139 +2288,123 @@ const MapGenerator = () => {
   // Helper function to check if coordinates are within map bounds
   const isValid = (row, col) => row >= 0 && row < CANVAS_HEIGHT && col >= 0 && col < CANVAS_WIDTH;
 
-  // COMPLETE OTG DETECTION ALGORITHM - Following exact accessibility rules
-  // Only WALL and WATER create OTGs. An empty tile is an OTG if a player cannot access it.
-  // Accessible = at least 2 orthogonal empty neighbors OR at least 1 orthogonal path to open space
+  // COMPLETE OTG DETECTION ALGORITHM
+  // OTG = One Tile Gap - passages that are only 1 tile wide create movement problems
+  // In shooter games, player and bullet hitboxes are typically larger than 1 tile (1.2-1.5 tiles wide)
+  // This means passages that are only 1 tile wide cause players to get stuck or can't pass through
   const detectAllOTGs = (tiles) => {
     const otgs = [];
-    const otgMap = {}; // Track already-detected OTGs to avoid duplicates
 
-    // Helper: Check if a tile is an obstacle (only WALL or WATER, NOT grass)
-    const isObstacle = (tile) => tile === TERRAIN_TYPES.WALL || tile === TERRAIN_TYPES.WATER;
-
-    // Helper: Check if a tile is passable (null or grass)
-    const isPassable = (tile) => tile === null || tile === TERRAIN_TYPES.GRASS;
-
-    // Helper: Check if coordinates are valid
-    const isValidCoord = (r, c) => r >= 0 && r < CANVAS_HEIGHT && c >= 0 && c < CANVAS_WIDTH;
-
-    // Helper: Add OTG to list if not already detected
-    const addOTG = (row, col, type) => {
-      const key = `${row},${col}`;
-      if (!otgMap[key] && isValidCoord(row, col) && isPassable(tiles[row][col])) {
-        otgMap[key] = true;
-        otgs.push({ row, col, type, severity: 'critical' });
+    // Helper: Check if a tile is a wall or water (blocking terrain)
+    const isBlocking = (row, col) => {
+      if (row < 0 || row >= CANVAS_HEIGHT || col < 0 || col >= CANVAS_WIDTH) {
+        return false; // Map edge is NOT blocking (allows passage to outside)
       }
+      return tiles[row][col] === TERRAIN_TYPES.WALL || tiles[row][col] === TERRAIN_TYPES.WATER;
     };
 
-    // ========== PASS 1: 2×2 Corner-Touch Pattern ==========
-    // Scan all walls to find diagonal wall pairs
+    // Scan every empty tile
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       for (let col = 0; col < CANVAS_WIDTH; col++) {
-        // Only check wall tiles
-        if (!isObstacle(tiles[row][col])) continue;
+        // Skip non-empty tiles
+        if (tiles[row][col] !== null) continue;
 
-        // Check for wall at (row+1, col+1) - SE diagonal
-        if (isValidCoord(row + 1, col + 1) && isObstacle(tiles[row + 1][col + 1])) {
-          // Verify orthogonal tiles between them are empty
-          const tile1 = isValidCoord(row, col + 1) ? tiles[row][col + 1] : null;
-          const tile2 = isValidCoord(row + 1, col) ? tiles[row + 1][col] : null;
+        // Get all 8 neighbors
+        const N  = isBlocking(row - 1, col);
+        const S  = isBlocking(row + 1, col);
+        const E  = isBlocking(row, col + 1);
+        const W  = isBlocking(row, col - 1);
+        const NE = isBlocking(row - 1, col + 1);
+        const NW = isBlocking(row - 1, col - 1);
+        const SE = isBlocking(row + 1, col + 1);
+        const SW = isBlocking(row + 1, col - 1);
 
-          if (isPassable(tile1) && isPassable(tile2)) {
-            // Mark both orthogonal tiles as OTGs
-            addOTG(row, col + 1, '2x2-corner-touch');
-            addOTG(row + 1, col, '2x2-corner-touch');
+        let isOTG = false;
+        let otgType = '';
+
+        // === TYPE 1: Orthogonal Corridor (Classic OTG) ===
+        // Pattern: [wall][empty][wall] horizontally or vertically
+        if (N && S) {
+          isOTG = true;
+          otgType = 'vertical-corridor';
+        }
+        else if (E && W) {
+          isOTG = true;
+          otgType = 'horizontal-corridor';
+        }
+
+        // === TYPE 2: Diagonal Squeeze ===
+        // Pattern: Walls on opposite diagonal corners create narrow diagonal passage
+        else if (NW && SE) {
+          // Additional check: Is this actually a squeeze or just corner proximity?
+          // It's a squeeze if the orthogonal neighbors don't provide escape
+          const hasNorthEscape = !N;
+          const hasSouthEscape = !S;
+          const hasWestEscape = !W;
+          const hasEastEscape = !E;
+
+          // If blocked on multiple orthogonal sides, it's a squeeze
+          if ((!hasNorthEscape || !hasWestEscape) && (!hasSouthEscape || !hasEastEscape)) {
+            isOTG = true;
+            otgType = 'diagonal-squeeze-nw-se';
+          }
+        }
+        else if (NE && SW) {
+          const hasNorthEscape = !N;
+          const hasSouthEscape = !S;
+          const hasWestEscape = !W;
+          const hasEastEscape = !E;
+
+          if ((!hasNorthEscape || !hasEastEscape) && (!hasSouthEscape || !hasWestEscape)) {
+            isOTG = true;
+            otgType = 'diagonal-squeeze-ne-sw';
           }
         }
 
-        // Check for wall at (row+1, col-1) - SW diagonal
-        if (isValidCoord(row + 1, col - 1) && isObstacle(tiles[row + 1][col - 1])) {
-          // Verify orthogonal tiles between them are empty
-          const tile1 = isValidCoord(row, col - 1) ? tiles[row][col - 1] : null;
-          const tile2 = isValidCoord(row + 1, col) ? tiles[row + 1][col] : null;
+        // === TYPE 3: Three-Sided Trap ===
+        // Three orthogonal sides blocked creates a dead-end 1-tile passage
+        else if ((N && E && W) || (N && E && S) || (N && W && S) || (E && W && S)) {
+          isOTG = true;
+          otgType = '3-sided-trap';
+        }
 
-          if (isPassable(tile1) && isPassable(tile2)) {
-            // Mark both orthogonal tiles as OTGs
-            addOTG(row, col - 1, '2x2-corner-touch');
-            addOTG(row + 1, col, '2x2-corner-touch');
-          }
+        if (isOTG) {
+          otgs.push({
+            row,
+            col,
+            type: otgType,
+            severity: 'critical'
+          });
         }
       }
     }
 
-    // ========== PASS 2: Diagonal Wall Gaps / Squeeze Patterns ==========
-    // Scan all empty tiles for diagonal wall squeeze patterns
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        // Only check passable tiles
-        if (!isPassable(tiles[row][col])) continue;
+    // === TYPE 4: Corner-Touch 2×2 Pattern ===
+    // Special case: Two walls touching only at diagonal corner
+    // Creates two 1-tile passages in the other corners
+    for (let row = 0; row < CANVAS_HEIGHT - 1; row++) {
+      for (let col = 0; col < CANVAS_WIDTH - 1; col++) {
+        const TL = tiles[row][col];
+        const TR = tiles[row][col + 1];
+        const BL = tiles[row + 1][col];
+        const BR = tiles[row + 1][col + 1];
 
-        // Skip if already marked as OTG in Pass 1
-        if (otgMap[`${row},${col}`]) continue;
+        const isTLWall = TL === TERRAIN_TYPES.WALL || TL === TERRAIN_TYPES.WATER;
+        const isTRWall = TR === TERRAIN_TYPES.WALL || TR === TERRAIN_TYPES.WATER;
+        const isBLWall = BL === TERRAIN_TYPES.WALL || BL === TERRAIN_TYPES.WATER;
+        const isBRWall = BR === TERRAIN_TYPES.WALL || BR === TERRAIN_TYPES.WATER;
 
-        // Get all 8 neighbors
-        const N  = isValidCoord(row - 1, col) ? tiles[row - 1][col] : 'EDGE';
-        const S  = isValidCoord(row + 1, col) ? tiles[row + 1][col] : 'EDGE';
-        const E  = isValidCoord(row, col + 1) ? tiles[row][col + 1] : 'EDGE';
-        const W  = isValidCoord(row, col - 1) ? tiles[row][col - 1] : 'EDGE';
-        const NE = isValidCoord(row - 1, col + 1) ? tiles[row - 1][col + 1] : 'EDGE';
-        const NW = isValidCoord(row - 1, col - 1) ? tiles[row - 1][col - 1] : 'EDGE';
-        const SE = isValidCoord(row + 1, col + 1) ? tiles[row + 1][col + 1] : 'EDGE';
-        const SW = isValidCoord(row + 1, col - 1) ? tiles[row + 1][col - 1] : 'EDGE';
-
-        // Case A: NW-SE diagonal walls
-        if (isObstacle(NW) && isObstacle(SE)) {
-          // Count orthogonal walls around current tile
-          const orthogonalWalls = [N, S, E, W].filter(t => isObstacle(t)).length;
-
-          // If 2+ orthogonal neighbors are walls, mark as OTG
-          if (orthogonalWalls >= 2) {
-            addOTG(row, col, 'diagonal-squeeze');
-            continue;
-          }
+        // Pattern 1: TL and BR are walls, TR and BL are empty
+        if (isTLWall && isBRWall && !isTRWall && !isBLWall && TR === null && BL === null) {
+          // The two empty tiles form 1-tile passages
+          otgs.push({row: row, col: col + 1, type: '2x2-corner-touch', severity: 'critical'});
+          otgs.push({row: row + 1, col: col, type: '2x2-corner-touch', severity: 'critical'});
         }
 
-        // Case B: NE-SW diagonal walls
-        if (isObstacle(NE) && isObstacle(SW)) {
-          // Count orthogonal walls around current tile
-          const orthogonalWalls = [N, S, E, W].filter(t => isObstacle(t)).length;
-
-          // If 2+ orthogonal neighbors are walls, mark as OTG
-          if (orthogonalWalls >= 2) {
-            addOTG(row, col, 'diagonal-squeeze');
-            continue;
-          }
-        }
-
-        // Case C: Walls at distance 2 creating trapped pockets
-        // Check for walls 2 tiles away in various diagonal directions
-        const wallsAtDistance2 = [];
-
-        // Check all positions at distance 2
-        const distance2Positions = [
-          [row - 2, col], [row + 2, col],     // N2, S2
-          [row, col - 2], [row, col + 2],     // W2, E2
-          [row - 2, col - 1], [row - 2, col + 1], // NW2, NE2
-          [row + 2, col - 1], [row + 2, col + 1], // SW2, SE2
-          [row - 1, col - 2], [row - 1, col + 2], // W2N, E2N
-          [row + 1, col - 2], [row + 1, col + 2]  // W2S, E2S
-        ];
-
-        for (const [r, c] of distance2Positions) {
-          if (isValidCoord(r, c) && isObstacle(tiles[r][c])) {
-            wallsAtDistance2.push([r, c]);
-          }
-        }
-
-        // If we have walls at distance 2, check if current tile is trapped
-        if (wallsAtDistance2.length >= 2) {
-          // Count total walls surrounding the tile (orthogonal + diagonal)
-          const allWalls = [N, S, E, W, NE, NW, SE, SW].filter(t => isObstacle(t)).length;
-
-          // If 3+ sides blocked by walls, mark as OTG
-          if (allWalls >= 3) {
-            addOTG(row, col, 'diagonal-squeeze');
-          }
+        // Pattern 2: TR and BL are walls, TL and BR are empty
+        if (isTRWall && isBLWall && !isTLWall && !isBRWall && TL === null && BR === null) {
+          otgs.push({row: row, col: col, type: '2x2-corner-touch', severity: 'critical'});
+          otgs.push({row: row + 1, col: col + 1, type: '2x2-corner-touch', severity: 'critical'});
         }
       }
     }
