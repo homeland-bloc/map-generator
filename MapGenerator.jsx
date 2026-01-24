@@ -1251,11 +1251,26 @@ const MapGenerator = () => {
           weight *= RECENT_TEMPLATE_WEIGHT_PENALTY;
         }
 
-        // For Showdown: multiply weight by structure size (larger = higher weight)
+        // For Showdown: favor long thin structures over thick rectangles
         if (isShowdown) {
-          const templateSize = countTilesInTemplate(template.pattern);
-          const sizeBonus = Math.sqrt(templateSize); // Scale bonus by square root to avoid extreme skew
-          weight *= sizeBonus;
+          const pattern = template.pattern;
+          const height = pattern.length;
+          const width = pattern[0].length;
+          const maxDim = Math.max(height, width);
+          const minDim = Math.min(height, width);
+
+          // Calculate aspect ratio (length / thickness)
+          const aspectRatio = maxDim / Math.max(1, minDim);
+
+          // Favor structures with high aspect ratio (long and thin)
+          // Ratio 1:1 (square) gets no bonus, ratio 4:1 gets 2x, ratio 6:1 gets 2.5x
+          const aspectBonus = Math.min(2.5, 1 + (aspectRatio - 1) * 0.4);
+
+          // Small size bonus for variety (prefer medium-sized structures)
+          const templateSize = countTilesInTemplate(pattern);
+          const sizeBonus = Math.sqrt(templateSize) * 0.5 + 0.5; // 0.5x to 1.5x
+
+          weight *= aspectBonus * sizeBonus;
         }
 
         adjustedWeights[name] = weight;
@@ -2630,6 +2645,60 @@ const MapGenerator = () => {
 
     console.log(`Structure size violations: ${structureSizeViolations} (should be 0)`);
 
+    // CRITICAL VALIDATION: Check for joint wall+water structures
+    // Both restrict movement, so adjacent wall+water can create huge impassable areas
+    let jointStructureViolations = 0;
+    const wallStructures = identifyAllStructures(placedTiles, TERRAIN_TYPES.WALL);
+    const waterStructures = identifyAllStructures(placedTiles, TERRAIN_TYPES.WATER);
+
+    for (const wallStruct of wallStructures) {
+      for (const waterStruct of waterStructures) {
+        // Check if these structures are adjacent
+        let areAdjacent = false;
+        for (const [wr, wc] of wallStruct) {
+          for (const [watr, watc] of waterStruct) {
+            // Check if wall and water tiles are orthogonally adjacent
+            if ((Math.abs(wr - watr) === 1 && wc === watc) ||
+                (Math.abs(wc - watc) === 1 && wr === watr)) {
+              areAdjacent = true;
+              break;
+            }
+          }
+          if (areAdjacent) break;
+        }
+
+        if (areAdjacent) {
+          // Calculate combined bounding box
+          const allPositions = [...wallStruct, ...waterStruct];
+          const minRow = Math.min(...allPositions.map(p => p[0]));
+          const maxRow = Math.max(...allPositions.map(p => p[0]));
+          const minCol = Math.min(...allPositions.map(p => p[1]));
+          const maxCol = Math.max(...allPositions.map(p => p[1]));
+
+          const combinedHeight = maxRow - minRow + 1;
+          const combinedWidth = maxCol - minCol + 1;
+          const combinedTotalSize = wallStruct.length + waterStruct.length;
+          const combinedMaxLength = Math.max(combinedHeight, combinedWidth);
+          const combinedMaxThickness = Math.min(combinedHeight, combinedWidth);
+
+          // Check combined size limits
+          const sizeMultiplier = isShowdown ? 1.5 : 1;
+          const maxCombinedSize = Math.floor(35 * sizeMultiplier); // Slightly higher than individual
+          const maxCombinedLength = Math.floor(12 * sizeMultiplier);
+          const maxCombinedThickness = Math.floor(4 * sizeMultiplier);
+
+          if (combinedTotalSize > maxCombinedSize ||
+              combinedMaxLength > maxCombinedLength ||
+              combinedMaxThickness > maxCombinedThickness) {
+            console.log(`  ERROR: Joint WALL+WATER at (${minRow},${minCol}): ${wallStruct.length} wall + ${waterStruct.length} water = ${combinedTotalSize} tiles, ${combinedMaxLength}x${combinedMaxThickness}`);
+            jointStructureViolations++;
+          }
+        }
+      }
+    }
+
+    console.log(`Joint wall+water violations: ${jointStructureViolations} (should be 0)`);
+
     // Bush size statistics after merging
     const bushStructuresAfterMerge = identifyAllStructures(placedTiles, TERRAIN_TYPES.GRASS);
     const bushSizes = bushStructuresAfterMerge.map(s => s.length);
@@ -2819,6 +2888,79 @@ const MapGenerator = () => {
       }
     }
 
+    // === TYPE 5: Water Thickness Violations ===
+    // Water should never be 1 tile wide or have 1-tile protrusions
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        if (tiles[row][col] !== TERRAIN_TYPES.WATER) continue;
+
+        // Count water neighbors in all 4 orthogonal directions
+        const N_water = (row > 0 && tiles[row-1][col] === TERRAIN_TYPES.WATER);
+        const S_water = (row < CANVAS_HEIGHT-1 && tiles[row+1][col] === TERRAIN_TYPES.WATER);
+        const E_water = (col < CANVAS_WIDTH-1 && tiles[row][col+1] === TERRAIN_TYPES.WATER);
+        const W_water = (col > 0 && tiles[row][col-1] === TERRAIN_TYPES.WATER);
+
+        const waterNeighbors = [N_water, S_water, E_water, W_water].filter(Boolean).length;
+
+        // 1-tile wide water: exactly 2 opposite water neighbors (vertical or horizontal strip)
+        if (waterNeighbors === 2 && ((N_water && S_water) || (E_water && W_water))) {
+          otgs.push({row, col, type: 'water-1-tile-wide', severity: 'critical'});
+        }
+
+        // 1-tile water protrusion: only 1 water neighbor
+        if (waterNeighbors === 1) {
+          otgs.push({row, col, type: 'water-protrusion', severity: 'critical'});
+        }
+
+        // Isolated 1x1 water tile
+        if (waterNeighbors === 0) {
+          otgs.push({row, col, type: 'water-isolated', severity: 'critical'});
+        }
+      }
+    }
+
+    // === TYPE 6: Water-Only OTGs ===
+    // Water is unbreakable, so gaps between water structures create OTGs
+    // For this check, treat walls as empty (walkable after breaking)
+    const isWater = (r, c) => {
+      if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) {
+        return false; // Edges are not water
+      }
+      return tiles[r][c] === TERRAIN_TYPES.WATER;
+    };
+
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        // Only check empty tiles and walls (not water or bushes)
+        const tile = tiles[row][col];
+        if (tile === TERRAIN_TYPES.WATER || tile === TERRAIN_TYPES.GRASS) continue;
+
+        // Get water neighbors
+        const N_w  = isWater(row - 1, col);
+        const S_w  = isWater(row + 1, col);
+        const E_w  = isWater(row, col + 1);
+        const W_w  = isWater(row, col - 1);
+        const NE_w = isWater(row - 1, col + 1);
+        const NW_w = isWater(row - 1, col - 1);
+        const SE_w = isWater(row + 1, col + 1);
+        const SW_w = isWater(row + 1, col - 1);
+
+        // Water-only orthogonal corridor
+        if ((N_w && S_w) || (E_w && W_w)) {
+          otgs.push({row, col, type: 'water-only-corridor', severity: 'high'});
+        }
+        // Water-only diagonal OTG
+        else if ((NW_w && SE_w) || (NE_w && SW_w) ||
+                 (N_w && SE_w) || (S_w && NW_w) || (E_w && SW_w) || (W_w && NE_w) ||
+                 (N_w && SW_w) || (S_w && NE_w) || (E_w && NW_w) || (W_w && SE_w)) {
+          const isLCorner = (N_w && W_w) || (N_w && E_w) || (S_w && W_w) || (S_w && E_w);
+          if (!isLCorner) {
+            otgs.push({row, col, type: 'water-only-diagonal', severity: 'high'});
+          }
+        }
+      }
+    }
+
     return otgs;
   };
 
@@ -2987,7 +3129,7 @@ const MapGenerator = () => {
 
           <button
             onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-            className={`bg-cyan-600 hover:bg-cyan-700 text-white p-2 rounded-r-lg transition-all ${leftSidebarOpen ? '' : 'translate-x-0'}`}
+            className={`bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-r-lg transition-all ${leftSidebarOpen ? '' : 'translate-x-0'}`}
             style={{
               position: leftSidebarOpen ? 'relative' : 'absolute',
               left: leftSidebarOpen ? 0 : 0
@@ -3196,7 +3338,7 @@ const MapGenerator = () => {
         <div className="fixed right-0 top-20 z-20 flex items-center">
           <button
             onClick={() => setToolbarOpen(!toolbarOpen)}
-            className={`bg-purple-600 hover:bg-purple-700 text-white p-2 rounded-l-lg transition-all ${!toolbarOpen ? 'translate-x-0' : ''}`}
+            className={`bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-l-lg transition-all ${!toolbarOpen ? 'translate-x-0' : ''}`}
             style={{
               position: toolbarOpen ? 'relative' : 'absolute',
               right: toolbarOpen ? 0 : 0
