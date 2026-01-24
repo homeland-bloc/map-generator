@@ -1238,22 +1238,49 @@ const MapGenerator = () => {
 
     // ===== PHASE 4 & 5: TEMPLATE PLACEMENT WITH VALIDATION =====
     console.log('\n--- PHASE 4: Template Placement ---');
+    console.log(`Using region-based variety: ${NUM_REGIONS} regions (${isShowdown ? '3x3 grid for Showdown' : '3 vertical strips for 3v3'})`);
 
-    // Template tracking to prevent repetition - track last 5 used templates
-    const templateHistory = [];
+    // Region-based template tracking for better variety distribution
+    // For 3v3: 3 regions (backside top, mid strip, backside bottom)
+    // For Showdown: 9 regions (3x3 grid of 20x20 areas)
     const TEMPLATE_HISTORY_SIZE = 5;
-    const RECENT_TEMPLATE_WEIGHT_PENALTY = 0.3; // Reduce recently used templates to 30% weight
+    const RECENT_TEMPLATE_WEIGHT_PENALTY = 0.3;
+    const NUM_REGIONS = isShowdown ? 9 : 3;
 
-    // Helper: Choose weighted random template with variety enforcement
-    const chooseTemplate = (templates) => {
-      // Calculate adjusted weights based on template history and Showdown bonuses
+    // Initialize template history for each region
+    const regionTemplateHistory = {};
+    for (let i = 0; i < NUM_REGIONS; i++) {
+      regionTemplateHistory[i] = [];
+    }
+
+    // Helper: Get region ID based on position
+    const getRegion = (row, col) => {
+      if (isShowdown) {
+        // 3x3 grid: divide 60x60 into 9 regions of 20x20
+        const regionRow = Math.floor(row / 20);
+        const regionCol = Math.floor(col / 20);
+        return regionRow * 3 + regionCol; // 0-8
+      } else {
+        // 3v3: 3 vertical regions
+        if (row < 11) return 0; // Backside top (rows 0-10)
+        if (row <= 21) return 1; // Mid strip (rows 11-21)
+        return 2; // Backside bottom (rows 22-32)
+      }
+    };
+
+    // Helper: Choose weighted random template with region-based variety enforcement
+    const chooseTemplate = (templates, row, col) => {
+      const region = getRegion(row, col);
+      const regionHistory = regionTemplateHistory[region];
+
+      // Calculate adjusted weights based on region history and Showdown bonuses
       const adjustedWeights = {};
 
       for (const [name, template] of Object.entries(templates)) {
         let weight = template.weight;
 
-        // Apply penalty for recently used templates (for variety)
-        if (templateHistory.includes(name)) {
+        // Apply penalty for recently used templates IN THIS REGION (for variety)
+        if (regionHistory.includes(name)) {
           weight *= RECENT_TEMPLATE_WEIGHT_PENALTY;
         }
 
@@ -1273,10 +1300,10 @@ const MapGenerator = () => {
       for (const [name, weight] of Object.entries(adjustedWeights)) {
         random -= weight;
         if (random <= 0) {
-          // Track this template in history
-          templateHistory.push(name);
-          if (templateHistory.length > TEMPLATE_HISTORY_SIZE) {
-            templateHistory.shift();
+          // Track this template in region history
+          regionHistory.push(name);
+          if (regionHistory.length > TEMPLATE_HISTORY_SIZE) {
+            regionHistory.shift();
           }
           return templates[name].pattern;
         }
@@ -1284,9 +1311,9 @@ const MapGenerator = () => {
 
       // Fallback
       const fallbackName = Object.keys(templates)[0];
-      templateHistory.push(fallbackName);
-      if (templateHistory.length > TEMPLATE_HISTORY_SIZE) {
-        templateHistory.shift();
+      regionHistory.push(fallbackName);
+      if (regionHistory.length > TEMPLATE_HISTORY_SIZE) {
+        regionHistory.shift();
       }
       return templates[fallbackName].pattern;
     };
@@ -2120,33 +2147,44 @@ const MapGenerator = () => {
       while (currentTileCount < targetCount && attemptCount < maxAttempts) {
         attemptCount++;
 
-        // Step 1: Choose template
-        const template = chooseTemplate(templates);
-        const templateSize = countTilesInTemplate(template);
-
-        // Step 2: Choose position - STRATEGIC placement for water
+        // Step 1: Choose initial position (rough) to determine region
         let row, col;
 
         if (type === TERRAIN_TYPES.WATER) {
-          // STRATEGIC WATER PLACEMENT: Only in mid strip (rows 11-21)
-          // Skip water if we've placed max structures or density too low for strategic placement
+          // STRATEGIC WATER PLACEMENT: Only in mid strip
           if (waterStructureCount >= maxWaterStructures) {
             break; // Stop placing water
           }
 
-          // Only place water if template is 6+ tiles
-          if (templateSize < 6) {
-            continue; // Skip small water templates
-          }
-
-          // Place in mid strip with strategic positioning
+          // Choose position in mid strip
           const midStripHeight = MID_STRIP_END - MID_STRIP_START + 1;
-          row = MID_STRIP_START + Math.floor(Math.random() * (midStripHeight - template.length + 1));
-          col = 5 + Math.floor(Math.random() * (CANVAS_WIDTH - 10 - template[0].length + 1)); // Center area
+          row = MID_STRIP_START + Math.floor(Math.random() * midStripHeight);
+          col = 5 + Math.floor(Math.random() * (CANVAS_WIDTH - 10));
         } else {
-          // Random placement for walls and bushes
-          row = Math.floor(Math.random() * (CANVAS_HEIGHT - template.length + 1));
-          col = Math.floor(Math.random() * (CANVAS_WIDTH - template[0].length + 1));
+          // Random position for walls and bushes
+          row = Math.floor(Math.random() * CANVAS_HEIGHT);
+          col = Math.floor(Math.random() * CANVAS_WIDTH);
+        }
+
+        // Step 2: Choose template based on region for variety
+        const template = chooseTemplate(templates, row, col);
+        const templateSize = countTilesInTemplate(template);
+
+        // Step 3: Adjust position to fit template (boundary check)
+        if (type === TERRAIN_TYPES.WATER) {
+          // Ensure template fits in mid strip
+          const midStripHeight = MID_STRIP_END - MID_STRIP_START + 1;
+          row = MID_STRIP_START + Math.floor(Math.random() * Math.max(1, midStripHeight - template.length + 1));
+          col = 5 + Math.floor(Math.random() * Math.max(1, CANVAS_WIDTH - 10 - template[0].length + 1));
+
+          // Skip small water templates
+          if (templateSize < 6) {
+            continue;
+          }
+        } else {
+          // Ensure template fits in map bounds
+          row = Math.min(row, CANVAS_HEIGHT - template.length);
+          col = Math.min(col, CANVAS_WIDTH - template[0].length);
         }
 
         // Step 3: Determine zone
@@ -2492,6 +2530,21 @@ const MapGenerator = () => {
     console.log(`  Medium bushes (12-20 tiles): ${mediumBushes}`);
     console.log(`  Small bushes (6-11 tiles): ${smallBushes}`);
     console.log(`  Tiny bushes (<6 tiles): ${tinyBushes} (should be low)`);
+
+    // Region-based variety statistics
+    console.log('\nRegion-based template variety:');
+    for (let i = 0; i < NUM_REGIONS; i++) {
+      const regionHistory = regionTemplateHistory[i];
+      const uniqueTemplates = new Set(regionHistory).size;
+      if (isShowdown) {
+        const regionRow = Math.floor(i / 3);
+        const regionCol = i % 3;
+        console.log(`  Region ${i} (grid ${regionRow},${regionCol}): ${uniqueTemplates} unique templates used`);
+      } else {
+        const regionName = i === 0 ? 'Backside Top' : (i === 1 ? 'Mid Strip' : 'Backside Bottom');
+        console.log(`  Region ${i} (${regionName}): ${uniqueTemplates} unique templates used`);
+      }
+    }
 
     // Final terrain distribution
     let wallCount = 0, waterCount = 0, grassCount = 0, emptyCount = 0;
