@@ -44,6 +44,7 @@ const MapGenerator = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [mapCode, setMapCode] = useState('');
   const [showOTGDebug, setShowOTGDebug] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const canvasRef = useRef(null);
 
   const handleTileClick = (row, col) => {
@@ -303,7 +304,45 @@ const MapGenerator = () => {
       box_hollow: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 2 },
       C_shape1: { pattern: [[1,1,1],[1,0,0],[1,1,1]], weight: 2 },
       C_shape2: { pattern: [[1,1,1],[0,0,1],[1,1,1]], weight: 2 },
-      T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 0.5 }
+      T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 0.5 },
+
+      // Showdown-specific large templates (10x10, 8x8, etc.) - low base weight, boosted by size in Showdown
+      showdown_wall_10x10: { pattern: [
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1]
+      ], weight: 0.1 },
+      showdown_L_8x8: { pattern: [
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,0,0,0,0],
+        [1,1,1,1,0,0,0,0],
+        [1,1,1,1,0,0,0,0],
+        [1,1,1,1,0,0,0,0],
+        [1,1,1,1,0,0,0,0],
+        [1,1,1,1,0,0,0,0]
+      ], weight: 0.1 },
+      showdown_wall_6x6: { pattern: [
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1]
+      ], weight: 0.2 },
+      showdown_wall_8x4: { pattern: [
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1]
+      ], weight: 0.2 }
     };
 
     const BUSH_TEMPLATES = {
@@ -327,7 +366,34 @@ const MapGenerator = () => {
       // Larger bush clusters
       T_bush: { pattern: [[0,1,1,0],[1,1,1,1],[0,1,1,0]], weight: 1 },
       rect_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
-      rect_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 1 }
+      rect_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 1 },
+
+      // Showdown-specific large bush templates (8x8, 6x6, etc.) - low base weight, boosted by size
+      showdown_bush_8x8: { pattern: [
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1]
+      ], weight: 0.1 },
+      showdown_bush_6x6: { pattern: [
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1]
+      ], weight: 0.2 },
+      showdown_bush_5x5: { pattern: [
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [1,1,1,1,1]
+      ], weight: 0.3 }
     };
 
     const WATER_TEMPLATES = {
@@ -923,6 +989,122 @@ const MapGenerator = () => {
       return otgs;
     };
 
+    // Helper: Place template at position
+    const placeTemplateAtPosition = (template, row, col, terrainType, tiles) => {
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
+      let tilesPlaced = 0;
+
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            tiles[row + i][col + j] = terrainType;
+            tilesPlaced++;
+          }
+        }
+      }
+
+      return tilesPlaced;
+    };
+
+    // Helper: Fill gaps between mirrored structures
+    const fillMirrorGaps = (template, positions, terrainType, tiles) => {
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
+      let gapsFilled = 0;
+
+      // Check vertical mirror gaps (left-right symmetry)
+      if (mirrorVertical && positions.length >= 2) {
+        const leftPos = positions.find(p => p.col < CANVAS_WIDTH / 2) || positions[0];
+        const rightPos = positions.find(p => p.col >= CANVAS_WIDTH / 2 && p.row === leftPos.row);
+
+        if (rightPos) {
+          const leftEnd = leftPos.col + templateWidth;
+          const rightStart = rightPos.col;
+          const gap = rightStart - leftEnd;
+
+          // If exactly 1 tile gap between mirrored structures, fill it
+          if (gap === 1) {
+            const gapCol = leftEnd;
+            for (let r = leftPos.row; r < leftPos.row + templateHeight; r++) {
+              if (r >= 0 && r < CANVAS_HEIGHT && gapCol >= 0 && gapCol < CANVAS_WIDTH) {
+                if (tiles[r][gapCol] === null) {
+                  tiles[r][gapCol] = terrainType;
+                  gapsFilled++;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Check horizontal mirror gaps (top-bottom symmetry)
+      if (mirrorHorizontal && positions.length >= 2) {
+        const topPos = positions.find(p => p.row < CANVAS_HEIGHT / 2) || positions[0];
+        const bottomPos = positions.find(p => p.row >= CANVAS_HEIGHT / 2 && p.col === topPos.col);
+
+        if (bottomPos) {
+          const topEnd = topPos.row + templateHeight;
+          const bottomStart = bottomPos.row;
+          const gap = bottomStart - topEnd;
+
+          // If exactly 1 tile gap between mirrored structures, fill it
+          if (gap === 1) {
+            const gapRow = topEnd;
+            for (let c = topPos.col; c < topPos.col + templateWidth; c++) {
+              if (gapRow >= 0 && gapRow < CANVAS_HEIGHT && c >= 0 && c < CANVAS_WIDTH) {
+                if (tiles[gapRow][c] === null) {
+                  tiles[gapRow][c] = terrainType;
+                  gapsFilled++;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      return gapsFilled;
+    };
+
+    // Helper: Place template with all mirror positions atomically
+    const placeTemplate = (template, row, col, terrainType, tiles) => {
+      let totalTilesPlaced = 0;
+
+      // Calculate all mirror positions
+      const positions = calculateMirrorPositions(template, row, col);
+
+      // Place at each position
+      for (const pos of positions) {
+        totalTilesPlaced += placeTemplateAtPosition(template, pos.row, pos.col, terrainType, tiles);
+      }
+
+      // Fill gaps between mirrored structures if they're exactly 1 tile apart
+      const mirrorGapsFilled = fillMirrorGaps(template, positions, terrainType, tiles);
+      totalTilesPlaced += mirrorGapsFilled;
+
+      return totalTilesPlaced;
+    };
+
+    // Helper: Undo template placement
+    const undoTemplatePlacement = (template, row, col, terrainType, tiles) => {
+      const positions = calculateMirrorPositions(template, row, col);
+
+      for (const pos of positions) {
+        const templateHeight = template.length;
+        const templateWidth = template[0].length;
+
+        for (let i = 0; i < templateHeight; i++) {
+          for (let j = 0; j < templateWidth; j++) {
+            if (template[i][j] === 1) {
+              if (isValid(pos.row + i, pos.col + j)) {
+                tiles[pos.row + i][pos.col + j] = null;
+              }
+            }
+          }
+        }
+      }
+    };
+
     // ===== PHASE 3.5: PATTERN PLACEMENT MODES =====
     console.log('\n--- PHASE 3.5: Pattern Placement ---');
 
@@ -1055,17 +1237,56 @@ const MapGenerator = () => {
     // ===== PHASE 4 & 5: TEMPLATE PLACEMENT WITH VALIDATION =====
     console.log('\n--- PHASE 4: Template Placement ---');
 
-    // Helper: Choose weighted random template
+    // Template tracking to prevent repetition - track last 5 used templates
+    const templateHistory = [];
+    const TEMPLATE_HISTORY_SIZE = 5;
+    const RECENT_TEMPLATE_WEIGHT_PENALTY = 0.3; // Reduce recently used templates to 30% weight
+
+    // Helper: Choose weighted random template with variety enforcement
     const chooseTemplate = (templates) => {
-      const totalWeight = Object.values(templates).reduce((sum, t) => sum + t.weight, 0);
-      let random = Math.random() * totalWeight;
+      // Calculate adjusted weights based on template history and Showdown bonuses
+      const adjustedWeights = {};
 
       for (const [name, template] of Object.entries(templates)) {
-        random -= template.weight;
-        if (random <= 0) return template.pattern;
+        let weight = template.weight;
+
+        // Apply penalty for recently used templates (for variety)
+        if (templateHistory.includes(name)) {
+          weight *= RECENT_TEMPLATE_WEIGHT_PENALTY;
+        }
+
+        // For Showdown: multiply weight by structure size (larger = higher weight)
+        if (isShowdown) {
+          const templateSize = countTilesInTemplate(template.pattern);
+          const sizeBonus = Math.sqrt(templateSize); // Scale bonus by square root to avoid extreme skew
+          weight *= sizeBonus;
+        }
+
+        adjustedWeights[name] = weight;
       }
 
-      return Object.values(templates)[0].pattern;
+      const totalWeight = Object.values(adjustedWeights).reduce((sum, w) => sum + w, 0);
+      let random = Math.random() * totalWeight;
+
+      for (const [name, weight] of Object.entries(adjustedWeights)) {
+        random -= weight;
+        if (random <= 0) {
+          // Track this template in history
+          templateHistory.push(name);
+          if (templateHistory.length > TEMPLATE_HISTORY_SIZE) {
+            templateHistory.shift();
+          }
+          return templates[name].pattern;
+        }
+      }
+
+      // Fallback
+      const fallbackName = Object.keys(templates)[0];
+      templateHistory.push(fallbackName);
+      if (templateHistory.length > TEMPLATE_HISTORY_SIZE) {
+        templateHistory.shift();
+      }
+      return templates[fallbackName].pattern;
     };
 
     // Helper: Count tiles in template
@@ -1138,122 +1359,6 @@ const MapGenerator = () => {
         maxLength: Math.max(height, width),
         maxThickness: Math.min(height, width)
       };
-    };
-
-    // Helper: Undo template placement
-    const undoTemplatePlacement = (template, row, col, terrainType, tiles) => {
-      const positions = calculateMirrorPositions(template, row, col);
-
-      for (const pos of positions) {
-        const templateHeight = template.length;
-        const templateWidth = template[0].length;
-
-        for (let i = 0; i < templateHeight; i++) {
-          for (let j = 0; j < templateWidth; j++) {
-            if (template[i][j] === 1) {
-              if (isValid(pos.row + i, pos.col + j)) {
-                tiles[pos.row + i][pos.col + j] = null;
-              }
-            }
-          }
-        }
-      }
-    };
-
-    // Helper: Place template at position
-    const placeTemplateAtPosition = (template, row, col, terrainType, tiles) => {
-      const templateHeight = template.length;
-      const templateWidth = template[0].length;
-      let tilesPlaced = 0;
-
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            tiles[row + i][col + j] = terrainType;
-            tilesPlaced++;
-          }
-        }
-      }
-
-      return tilesPlaced;
-    };
-
-    // Helper: Fill gaps between mirrored structures
-    const fillMirrorGaps = (template, positions, terrainType, tiles) => {
-      const templateHeight = template.length;
-      const templateWidth = template[0].length;
-      let gapsFilled = 0;
-
-      // Check vertical mirror gaps (left-right symmetry)
-      if (mirrorVertical && positions.length >= 2) {
-        const leftPos = positions.find(p => p.col < CANVAS_WIDTH / 2) || positions[0];
-        const rightPos = positions.find(p => p.col >= CANVAS_WIDTH / 2 && p.row === leftPos.row);
-
-        if (rightPos) {
-          const leftEnd = leftPos.col + templateWidth;
-          const rightStart = rightPos.col;
-          const gap = rightStart - leftEnd;
-
-          // If exactly 1 tile gap between mirrored structures, fill it
-          if (gap === 1) {
-            const gapCol = leftEnd;
-            for (let r = leftPos.row; r < leftPos.row + templateHeight; r++) {
-              if (r >= 0 && r < CANVAS_HEIGHT && gapCol >= 0 && gapCol < CANVAS_WIDTH) {
-                if (tiles[r][gapCol] === null) {
-                  tiles[r][gapCol] = terrainType;
-                  gapsFilled++;
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Check horizontal mirror gaps (top-bottom symmetry)
-      if (mirrorHorizontal && positions.length >= 2) {
-        const topPos = positions.find(p => p.row < CANVAS_HEIGHT / 2) || positions[0];
-        const bottomPos = positions.find(p => p.row >= CANVAS_HEIGHT / 2 && p.col === topPos.col);
-
-        if (bottomPos) {
-          const topEnd = topPos.row + templateHeight;
-          const bottomStart = bottomPos.row;
-          const gap = bottomStart - topEnd;
-
-          // If exactly 1 tile gap between mirrored structures, fill it
-          if (gap === 1) {
-            const gapRow = topEnd;
-            for (let c = topPos.col; c < topPos.col + templateWidth; c++) {
-              if (gapRow >= 0 && gapRow < CANVAS_HEIGHT && c >= 0 && c < CANVAS_WIDTH) {
-                if (tiles[gapRow][c] === null) {
-                  tiles[gapRow][c] = terrainType;
-                  gapsFilled++;
-                }
-              }
-            }
-          }
-        }
-      }
-
-      return gapsFilled;
-    };
-
-    // Helper: Place template with all mirror positions atomically
-    const placeTemplate = (template, row, col, terrainType, tiles) => {
-      let totalTilesPlaced = 0;
-
-      // Calculate all mirror positions
-      const positions = calculateMirrorPositions(template, row, col);
-
-      // Place at each position
-      for (const pos of positions) {
-        totalTilesPlaced += placeTemplateAtPosition(template, pos.row, pos.col, terrainType, tiles);
-      }
-
-      // Fill gaps between mirrored structures if they're exactly 1 tile apart
-      const mirrorGapsFilled = fillMirrorGaps(template, positions, terrainType, tiles);
-      totalTilesPlaced += mirrorGapsFilled;
-
-      return totalTilesPlaced;
     };
 
     // Helper: Identify all structures of a given terrain type
@@ -1426,10 +1531,11 @@ const MapGenerator = () => {
       return mergeCount;
     };
 
-    // FIX 2: ENHANCED OTG FIXING WITH MULTIPLE PASSES (10 iterations with detailed logging)
+    // FIX 2: ENHANCED OTG FIXING WITH MULTIPLE PASSES (10-15 iterations with detailed logging)
     const fixAllRemainingOTGs = (tiles) => {
-      console.log('\n--- Enhanced OTG Fixing (up to 10 iterations) ---');
-      const maxIterations = 10;
+      // Use more iterations for Showdown maps due to larger size
+      const maxIterations = isShowdown ? 15 : 10;
+      console.log(`\n--- Enhanced OTG Fixing (up to ${maxIterations} iterations) ---`);
       let totalOTGsFixed = 0;
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -1509,8 +1615,9 @@ const MapGenerator = () => {
 
     // AGGRESSIVE OTG CLEANUP - Targeted removal of stubborn OTGs
     const aggressiveOTGCleanup = (tiles) => {
-      console.log('\n--- Aggressive OTG Cleanup (2-3 iterations) ---');
-      const maxIterations = 3;
+      // Use more iterations for Showdown maps due to larger size
+      const maxIterations = isShowdown ? 5 : 3;
+      console.log(`\n--- Aggressive OTG Cleanup (${maxIterations} iterations) ---`);
       let totalRemoved = 0;
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -1671,6 +1778,88 @@ const MapGenerator = () => {
           if (tiles[row][rightCol] !== tiles[row][rightCol - 1]) {
             tiles[row][rightCol] = null;
             edgeTilesRemoved++;
+          }
+        }
+      }
+
+      // Special extra cleanup for Showdown maps - more aggressive edge OTG detection
+      if (isShowdown) {
+        console.log('  Showdown mode: Extra edge cleanup pass...');
+
+        // Check for any remaining single-tile gaps along edges
+        for (let col = 0; col < CANVAS_WIDTH; col++) {
+          // Top edge - check for OTGs created by structures
+          if (tiles[0][col] === null) {
+            const neighbors = [
+              [0, col-1], [0, col+1], [1, col]
+            ].filter(([r, c]) => r >= 0 && r < CANVAS_HEIGHT && c >= 0 && c < CANVAS_WIDTH);
+
+            const filledNeighbors = neighbors.filter(([r, c]) => tiles[r][c] !== null).length;
+            if (filledNeighbors >= 2) {
+              // Check if this creates a 1-tile gap
+              const leftFilled = col > 0 && tiles[0][col-1] !== null;
+              const rightFilled = col < CANVAS_WIDTH-1 && tiles[0][col+1] !== null;
+              if (leftFilled && rightFilled) {
+                tiles[0][col-1] = null;
+                edgeTilesRemoved++;
+              }
+            }
+          }
+
+          // Bottom edge
+          const bottomRow = CANVAS_HEIGHT - 1;
+          if (tiles[bottomRow][col] === null) {
+            const neighbors = [
+              [bottomRow, col-1], [bottomRow, col+1], [bottomRow-1, col]
+            ].filter(([r, c]) => r >= 0 && r < CANVAS_HEIGHT && c >= 0 && c < CANVAS_WIDTH);
+
+            const filledNeighbors = neighbors.filter(([r, c]) => tiles[r][c] !== null).length;
+            if (filledNeighbors >= 2) {
+              const leftFilled = col > 0 && tiles[bottomRow][col-1] !== null;
+              const rightFilled = col < CANVAS_WIDTH-1 && tiles[bottomRow][col+1] !== null;
+              if (leftFilled && rightFilled) {
+                tiles[bottomRow][col-1] = null;
+                edgeTilesRemoved++;
+              }
+            }
+          }
+        }
+
+        // Check left and right edges
+        for (let row = 0; row < CANVAS_HEIGHT; row++) {
+          // Left edge
+          if (tiles[row][0] === null) {
+            const neighbors = [
+              [row-1, 0], [row+1, 0], [row, 1]
+            ].filter(([r, c]) => r >= 0 && r < CANVAS_HEIGHT && c >= 0 && c < CANVAS_WIDTH);
+
+            const filledNeighbors = neighbors.filter(([r, c]) => tiles[r][c] !== null).length;
+            if (filledNeighbors >= 2) {
+              const topFilled = row > 0 && tiles[row-1][0] !== null;
+              const bottomFilled = row < CANVAS_HEIGHT-1 && tiles[row+1][0] !== null;
+              if (topFilled && bottomFilled) {
+                tiles[row-1][0] = null;
+                edgeTilesRemoved++;
+              }
+            }
+          }
+
+          // Right edge
+          const rightCol = CANVAS_WIDTH - 1;
+          if (tiles[row][rightCol] === null) {
+            const neighbors = [
+              [row-1, rightCol], [row+1, rightCol], [row, rightCol-1]
+            ].filter(([r, c]) => r >= 0 && r < CANVAS_HEIGHT && c >= 0 && c < CANVAS_WIDTH);
+
+            const filledNeighbors = neighbors.filter(([r, c]) => tiles[r][c] !== null).length;
+            if (filledNeighbors >= 2) {
+              const topFilled = row > 0 && tiles[row-1][rightCol] !== null;
+              const bottomFilled = row < CANVAS_HEIGHT-1 && tiles[row+1][rightCol] !== null;
+              if (topFilled && bottomFilled) {
+                tiles[row-1][rightCol] = null;
+                edgeTilesRemoved++;
+              }
+            }
           }
         }
       }
@@ -2570,6 +2759,50 @@ const MapGenerator = () => {
       </div>
 
       <div className="relative z-10 flex items-start justify-center gap-4 p-4 max-w-7xl mx-auto">
+        {/* Left Sidebar */}
+        <div className="flex flex-col gap-4 w-64">
+          {/* Map Size */}
+          <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-4 backdrop-blur-sm">
+            <label className="text-white font-semibold text-sm mb-2 block">Map Size</label>
+            <select
+              value={mapSize}
+              onChange={(e) => {
+                setMapSize(e.target.value);
+                const newWidth = MAP_SIZES[e.target.value].width;
+                const newHeight = MAP_SIZES[e.target.value].height;
+                setTiles(Array(newHeight).fill(null).map(() => Array(newWidth).fill(null)));
+              }}
+              className="w-full bg-gray-800 text-white border border-cyan-400 border-opacity-30 rounded px-3 py-2 focus:outline-none focus:border-cyan-400"
+            >
+              {Object.entries(MAP_SIZES).map(([key, value]) => (
+                <option key={key} value={key}>{value.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Clear Map Button */}
+          <button
+            onClick={() => {
+              if (window.confirm('Are you sure you want to clear the map? This cannot be undone.')) {
+                setTiles(Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null)));
+              }
+            }}
+            className="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+          >
+            <span style={{ fontSize: '18px' }}>🗑️</span>
+            Clear Map
+          </button>
+
+          {/* Download Map Button */}
+          <button
+            onClick={downloadMap}
+            className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+          >
+            <span style={{ fontSize: '18px' }}>⬇️</span>
+            Download Map
+          </button>
+        </div>
+
         <div className="flex flex-col items-center gap-4 flex-1">
           <div className="relative inline-block">
             <div
@@ -2577,7 +2810,10 @@ const MapGenerator = () => {
               className="inline-block border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
               style={{
                 background: '#FFE4B3',
-                userSelect: 'none'
+                userSelect: 'none',
+                transform: `scale(${zoom})`,
+                transformOrigin: 'top center',
+                transition: 'transform 0.2s ease'
               }}
             >
               {(() => {
@@ -2626,67 +2862,61 @@ const MapGenerator = () => {
             </div>
           </div>
 
-          <div className="w-full max-w-md bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-3 backdrop-blur-sm">
-            <label className="text-white font-semibold text-sm mb-2 block">Map Size</label>
-            <select
-              value={mapSize}
-              onChange={(e) => {
-                setMapSize(e.target.value);
-                // Reset tiles when changing map size
-                const newWidth = MAP_SIZES[e.target.value].width;
-                const newHeight = MAP_SIZES[e.target.value].height;
-                setTiles(Array(newHeight).fill(null).map(() => Array(newWidth).fill(null)));
-              }}
-              className="w-full bg-gray-800 text-white border border-cyan-400 border-opacity-30 rounded px-3 py-2 focus:outline-none focus:border-cyan-400"
+          {/* Zoom Controls */}
+          <div className="flex items-center gap-3 w-full max-w-md bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg p-3 backdrop-blur-sm">
+            <button
+              onClick={() => setZoom(Math.max(0.25, zoom - 0.25))}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-lg transition-colors"
             >
-              {Object.entries(MAP_SIZES).map(([key, value]) => (
-                <option key={key} value={key}>{value.name}</option>
-              ))}
-            </select>
+              -
+            </button>
+            <input
+              type="range"
+              min="0.25"
+              max="2"
+              step="0.25"
+              value={zoom}
+              onChange={(e) => setZoom(parseFloat(e.target.value))}
+              className="flex-1 accent-purple-500"
+            />
+            <button
+              onClick={() => setZoom(Math.min(2, zoom + 0.25))}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-lg transition-colors"
+            >
+              +
+            </button>
+            <span className="text-white font-semibold min-w-[60px] text-center">{Math.round(zoom * 100)}%</span>
           </div>
 
-          <button
-            onClick={handleGenerateMap}
-            disabled={isGenerating}
-            className={`w-full max-w-md bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors ${
-              isGenerating ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
-          >
-            <span style={{ fontSize: '20px' }}>🪄</span>
-            {isGenerating ? 'Generating...' : 'Generate Map'}
-          </button>
-
-          <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-2 w-full max-w-md backdrop-blur-sm">
-            <div className="flex items-center justify-center gap-2">
-              <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.WALL, minWidth: '60px' }}>
-                <span className="text-white text-sm font-bold">{tileCounts.wallCount}</span>
-              </div>
-              <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.WATER, minWidth: '60px' }}>
-                <span className="text-white text-sm font-bold">{tileCounts.waterCount}</span>
-              </div>
-              <div className="flex items-center justify-center px-3 py-2 rounded" style={{ backgroundColor: TERRAIN_TYPES.GRASS, minWidth: '60px' }}>
-                <span className="text-white text-sm font-bold">{tileCounts.grassCount}</span>
-              </div>
-              <div className="flex items-center justify-center px-3 py-2 rounded bg-orange-200" style={{ minWidth: '60px' }}>
-                <span className="text-gray-700 text-sm font-bold">{tileCounts.emptyCount}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg w-full max-w-md backdrop-blur-sm overflow-hidden">
+          {/* Generate and Settings Buttons */}
+          <div className="flex gap-2 w-full max-w-md">
+            <button
+              onClick={handleGenerateMap}
+              disabled={isGenerating}
+              className={`flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors ${
+                isGenerating ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              <span style={{ fontSize: '20px' }}>🪄</span>
+              {isGenerating ? 'Generating...' : 'Generate Map'}
+            </button>
             <button
               onClick={() => setSlidersOpen(!slidersOpen)}
-              className="w-full px-4 py-3 text-white font-semibold flex items-center justify-between hover:bg-white hover:bg-opacity-5 transition-colors"
+              className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center transition-colors"
+              title="Settings"
             >
-              <span className="flex items-center gap-2">
-                <span style={{ fontSize: '20px' }}>⚙️</span>
-                Tile Density Settings
-              </span>
-              <span className="text-xl">{slidersOpen ? '▼' : '▶'}</span>
+              <span style={{ fontSize: '20px' }}>⚙️</span>
             </button>
+          </div>
 
-            {slidersOpen && (
-              <div className="px-4 pb-4 space-y-3">
+          {/* Density Settings (Collapsible) */}
+          {slidersOpen && (
+            <div className="bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg w-full max-w-md backdrop-blur-sm p-4">
+              <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                <span style={{ fontSize: '18px' }}>⚙️</span>
+                Tile Density Settings
+              </h3>
+              <div className="space-y-3">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-white text-sm flex-1">🧱 Walls</span>
@@ -2732,8 +2962,8 @@ const MapGenerator = () => {
                   />
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Map Code Export Section */}
           <div className="bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg w-full max-w-md backdrop-blur-sm p-4">
@@ -2778,34 +3008,46 @@ const MapGenerator = () => {
             <div className="flex flex-col gap-2 items-center">
               <button
                 onClick={() => setSelectedTool(TERRAIN_TYPES.WALL)}
-                className={`w-10 h-10 rounded-lg border-2 transition-all ${
-                  selectedTool === TERRAIN_TYPES.WALL 
-                    ? 'border-white scale-110 shadow-lg' 
+                className={`w-10 h-10 rounded-lg border-2 transition-all relative ${
+                  selectedTool === TERRAIN_TYPES.WALL
+                    ? 'border-white scale-110 shadow-lg'
                     : 'border-transparent hover:border-gray-400'
                 }`}
                 style={{ backgroundColor: TERRAIN_TYPES.WALL }}
                 title="Wall"
-              />
+              >
+                <span className="absolute bottom-0 right-0 bg-black bg-opacity-70 text-white text-xs px-1 rounded-tl">
+                  {tileCounts.wallCount}
+                </span>
+              </button>
               <button
                 onClick={() => setSelectedTool(TERRAIN_TYPES.WATER)}
-                className={`w-10 h-10 rounded-lg border-2 transition-all ${
-                  selectedTool === TERRAIN_TYPES.WATER 
-                    ? 'border-white scale-110 shadow-lg' 
+                className={`w-10 h-10 rounded-lg border-2 transition-all relative ${
+                  selectedTool === TERRAIN_TYPES.WATER
+                    ? 'border-white scale-110 shadow-lg'
                     : 'border-transparent hover:border-gray-400'
                 }`}
                 style={{ backgroundColor: TERRAIN_TYPES.WATER }}
                 title="Water"
-              />
+              >
+                <span className="absolute bottom-0 right-0 bg-black bg-opacity-70 text-white text-xs px-1 rounded-tl">
+                  {tileCounts.waterCount}
+                </span>
+              </button>
               <button
                 onClick={() => setSelectedTool(TERRAIN_TYPES.GRASS)}
-                className={`w-10 h-10 rounded-lg border-2 transition-all ${
+                className={`w-10 h-10 rounded-lg border-2 transition-all relative ${
                   selectedTool === TERRAIN_TYPES.GRASS
                     ? 'border-white scale-110 shadow-lg'
                     : 'border-transparent hover:border-gray-400'
                 }`}
                 style={{ backgroundColor: TERRAIN_TYPES.GRASS }}
                 title="Grass"
-              />
+              >
+                <span className="absolute bottom-0 right-0 bg-black bg-opacity-70 text-white text-xs px-1 rounded-tl">
+                  {tileCounts.grassCount}
+                </span>
+              </button>
               <button
                 onClick={() => setSelectedTool(null)}
                 className={`w-10 h-10 rounded-lg border-2 bg-gray-700 hover:bg-gray-600 transition-all flex items-center justify-center text-lg ${
@@ -2868,22 +3110,6 @@ const MapGenerator = () => {
                 OTG
               </button>
 
-              <div className="w-full border-t border-purple-400 border-opacity-30 my-1" />
-              
-              <button
-                onClick={clearCanvas}
-                className="w-10 h-10 rounded-lg bg-red-600 hover:bg-red-700 flex items-center justify-center transition-colors"
-                title="Clear All"
-              >
-                <span className="text-white" style={{ fontSize: '18px' }}>🗑️</span>
-              </button>
-              <button
-                onClick={downloadMap}
-                className="w-10 h-10 rounded-lg bg-green-600 hover:bg-green-700 flex items-center justify-center transition-colors"
-                title="Download PNG"
-              >
-                <span className="text-white" style={{ fontSize: '18px' }}>⬇️</span>
-              </button>
             </div>
           </div>
         </div>
