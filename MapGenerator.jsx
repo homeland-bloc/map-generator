@@ -672,6 +672,44 @@ const MapGenerator = () => {
       return true;
     };
 
+    // Helper: Get dimensions of a structure (length, thickness, total size)
+    const getStructureDimensions = (tiles, startRow, startCol, targetType) => {
+      const visited = new Set();
+      const queue = [[startRow, startCol]];
+      const positions = [];
+
+      while (queue.length > 0) {
+        const [row, col] = queue.shift();
+        const key = `${row},${col}`;
+
+        if (!isValid(row, col) || visited.has(key) || tiles[row][col] !== targetType) continue;
+
+        visited.add(key);
+        positions.push([row, col]);
+
+        [[row-1,col], [row+1,col], [row,col-1], [row,col+1]].forEach(([r, c]) => {
+          if (!visited.has(`${r},${c}`)) queue.push([r, c]);
+        });
+      }
+
+      if (positions.length === 0) return { totalSize: 0, maxLength: 0, maxThickness: 0 };
+
+      // Calculate bounding box
+      const minRow = Math.min(...positions.map(p => p[0]));
+      const maxRow = Math.max(...positions.map(p => p[0]));
+      const minCol = Math.min(...positions.map(p => p[1]));
+      const maxCol = Math.max(...positions.map(p => p[1]));
+
+      const height = maxRow - minRow + 1;
+      const width = maxCol - minCol + 1;
+
+      return {
+        totalSize: positions.length,
+        maxLength: Math.max(height, width),
+        maxThickness: Math.min(height, width)
+      };
+    };
+
     // CRITICAL: Placement validation function (prevents OTGs and enforces size limits)
     const checkPlacementValid = (template, row, col, tiles, zone, terrainType) => {
       const templateHeight = template.length;
@@ -1238,7 +1276,6 @@ const MapGenerator = () => {
 
     // ===== PHASE 4 & 5: TEMPLATE PLACEMENT WITH VALIDATION =====
     console.log('\n--- PHASE 4: Template Placement ---');
-    console.log(`Using region-based variety: ${NUM_REGIONS} regions (${isShowdown ? '3x3 grid for Showdown' : '3 vertical strips for 3v3'})`);
 
     // Region-based template tracking for better variety distribution
     // For 3v3: 3 regions (backside top, mid strip, backside bottom)
@@ -1246,6 +1283,8 @@ const MapGenerator = () => {
     const TEMPLATE_HISTORY_SIZE = 5;
     const RECENT_TEMPLATE_WEIGHT_PENALTY = 0.3;
     const NUM_REGIONS = isShowdown ? 9 : 3;
+
+    console.log(`Using region-based variety: ${NUM_REGIONS} regions (${isShowdown ? '3x3 grid for Showdown' : '3 vertical strips for 3v3'})`);
 
     // Initialize template history for each region
     const regionTemplateHistory = {};
@@ -1351,45 +1390,6 @@ const MapGenerator = () => {
 
       return size;
     };
-
-    // Helper: Get dimensions of a structure (length, thickness, total size)
-    const getStructureDimensions = (tiles, startRow, startCol, targetType) => {
-      const visited = new Set();
-      const queue = [[startRow, startCol]];
-      const positions = [];
-
-      while (queue.length > 0) {
-        const [row, col] = queue.shift();
-        const key = `${row},${col}`;
-
-        if (!isValid(row, col) || visited.has(key) || tiles[row][col] !== targetType) continue;
-
-        visited.add(key);
-        positions.push([row, col]);
-
-        [[row-1,col], [row+1,col], [row,col-1], [row,col+1]].forEach(([r, c]) => {
-          if (!visited.has(`${r},${c}`)) queue.push([r, c]);
-        });
-      }
-
-      if (positions.length === 0) return { totalSize: 0, maxLength: 0, maxThickness: 0 };
-
-      // Calculate bounding box
-      const minRow = Math.min(...positions.map(p => p[0]));
-      const maxRow = Math.max(...positions.map(p => p[0]));
-      const minCol = Math.min(...positions.map(p => p[1]));
-      const maxCol = Math.max(...positions.map(p => p[1]));
-
-      const height = maxRow - minRow + 1;
-      const width = maxCol - minCol + 1;
-
-      return {
-        totalSize: positions.length,
-        maxLength: Math.max(height, width),
-        maxThickness: Math.min(height, width)
-      };
-    };
-
     // Helper: Identify all structures of a given terrain type
     const identifyAllStructures = (tiles, terrainType) => {
       const structures = [];
@@ -2872,51 +2872,72 @@ const MapGenerator = () => {
 
       <div className="relative z-10 flex items-start justify-center gap-4 p-4 max-w-7xl mx-auto">
         {/* Left Sidebar */}
-        <div className="flex flex-col gap-4 w-64">
-          {/* Map Size */}
-          <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-4 backdrop-blur-sm">
-            <label className="text-white font-semibold text-sm mb-2 block">Map Size</label>
-            <select
-              value={mapSize}
-              onChange={(e) => {
-                setMapSize(e.target.value);
-                const newWidth = MAP_SIZES[e.target.value].width;
-                const newHeight = MAP_SIZES[e.target.value].height;
-                setTiles(Array(newHeight).fill(null).map(() => Array(newWidth).fill(null)));
-              }}
-              className="w-full bg-gray-800 text-white border border-cyan-400 border-opacity-30 rounded px-3 py-2 focus:outline-none focus:border-cyan-400"
-            >
-              {Object.entries(MAP_SIZES).map(([key, value]) => (
-                <option key={key} value={key}>{value.name}</option>
-              ))}
-            </select>
+        <div className="fixed left-0 top-20 z-20 flex items-center">
+          <div className={`bg-black bg-opacity-40 border-r border-t border-b border-cyan-400 border-opacity-50 rounded-r-lg p-2 backdrop-blur-sm transition-transform duration-300 ${leftSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <div className="flex flex-col gap-4 w-60">
+              {/* Map Size */}
+              <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-4 backdrop-blur-sm">
+                <label className="text-white font-semibold text-sm mb-2 block">Map Size</label>
+                <select
+                  value={mapSize}
+                  onChange={(e) => {
+                    setMapSize(e.target.value);
+                    const newWidth = MAP_SIZES[e.target.value].width;
+                    const newHeight = MAP_SIZES[e.target.value].height;
+                    setTiles(Array(newHeight).fill(null).map(() => Array(newWidth).fill(null)));
+                  }}
+                  className="w-full bg-gray-800 text-white border border-cyan-400 border-opacity-30 rounded px-3 py-2 focus:outline-none focus:border-cyan-400"
+                >
+                  {Object.entries(MAP_SIZES).map(([key, value]) => (
+                    <option key={key} value={key}>{value.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Clear Map Button */}
+              <button
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to clear the map? This cannot be undone.')) {
+                    setTiles(Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null)));
+                  }
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                <span style={{ fontSize: '18px' }}>🗑️</span>
+                Clear Map
+              </button>
+
+              {/* Download Map Button */}
+              <button
+                onClick={downloadMap}
+                className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                <span style={{ fontSize: '18px' }}>⬇️</span>
+                Download Map
+              </button>
+            </div>
           </div>
 
-          {/* Clear Map Button */}
           <button
-            onClick={() => {
-              if (window.confirm('Are you sure you want to clear the map? This cannot be undone.')) {
-                setTiles(Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null)));
-              }
+            onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+            className={`bg-cyan-600 hover:bg-cyan-700 text-white p-2 rounded-r-lg transition-all ${leftSidebarOpen ? '' : 'translate-x-0'}`}
+            style={{
+              position: leftSidebarOpen ? 'relative' : 'absolute',
+              left: leftSidebarOpen ? 0 : 0
             }}
-            className="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
           >
-            <span style={{ fontSize: '18px' }}>🗑️</span>
-            Clear Map
-          </button>
-
-          {/* Download Map Button */}
-          <button
-            onClick={downloadMap}
-            className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
-          >
-            <span style={{ fontSize: '18px' }}>⬇️</span>
-            Download Map
+            {leftSidebarOpen ? '←' : '→'}
           </button>
         </div>
 
         <div className="flex flex-col items-center gap-4 flex-1">
-          <div className="relative inline-block">
+          <div
+            className="relative inline-block"
+            style={{
+              minHeight: `${(CANVAS_HEIGHT * CURRENT_TILE_SIZE + 8) * zoom}px`,
+              transition: 'min-height 0.2s ease'
+            }}
+          >
             <div
               ref={canvasRef}
               className="inline-block border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
