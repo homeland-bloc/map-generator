@@ -26,7 +26,7 @@ const MapGenerator = () => {
   const [mapSize, setMapSize] = useState('3v3');
   const CANVAS_WIDTH = MAP_SIZES[mapSize].width;
   const CANVAS_HEIGHT = MAP_SIZES[mapSize].height;
-  const CURRENT_CURRENT_TILE_SIZE = MAP_SIZES[mapSize].tileSize;
+  const CURRENT_TILE_SIZE = MAP_SIZES[mapSize].tileSize;
 
   const [tiles, setTiles] = useState(() =>
     Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null))
