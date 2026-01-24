@@ -434,6 +434,60 @@ const MapGenerator = () => {
       }
     };
 
+    // Helper: Calculate mirror positions for a template placement
+    const calculateMirrorPositions = (template, row, col) => {
+      const positions = [{row, col}]; // Original position always included
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
+
+      if (mirrorVertical) {
+        const mirrorCol = CANVAS_WIDTH - col - templateWidth;
+        if (mirrorCol >= 0 && mirrorCol + templateWidth <= CANVAS_WIDTH) {
+          positions.push({row, col: mirrorCol});
+        }
+      }
+
+      if (mirrorHorizontal) {
+        const mirrorRow = CANVAS_HEIGHT - row - templateHeight;
+        if (mirrorRow >= 0 && mirrorRow + templateHeight <= CANVAS_HEIGHT) {
+          positions.push({row: mirrorRow, col});
+        }
+      }
+
+      if (mirrorDiagonal) {
+        const centerRow = (CANVAS_HEIGHT - 1) / 2;
+        const centerCol = (CANVAS_WIDTH - 1) / 2;
+        const mirrorRow = Math.round(2 * centerRow - row - templateHeight + 1);
+        const mirrorCol = Math.round(2 * centerCol - col - templateWidth + 1);
+        if (mirrorRow >= 0 && mirrorRow + templateHeight <= CANVAS_HEIGHT &&
+            mirrorCol >= 0 && mirrorCol + templateWidth <= CANVAS_WIDTH) {
+          positions.push({row: mirrorRow, col: mirrorCol});
+        }
+      }
+
+      if (mirrorVertical && mirrorHorizontal) {
+        const mirrorRow = CANVAS_HEIGHT - row - templateHeight;
+        const mirrorCol = CANVAS_WIDTH - col - templateWidth;
+        if (mirrorRow >= 0 && mirrorRow + templateHeight <= CANVAS_HEIGHT &&
+            mirrorCol >= 0 && mirrorCol + templateWidth <= CANVAS_WIDTH) {
+          positions.push({row: mirrorRow, col: mirrorCol});
+        }
+      }
+
+      // Remove duplicates
+      const uniquePositions = [];
+      const seen = new Set();
+      for (const pos of positions) {
+        const key = `${pos.row},${pos.col}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniquePositions.push(pos);
+        }
+      }
+
+      return uniquePositions;
+    };
+
     // ===== PHASE 3.5: PATTERN PLACEMENT MODES =====
     console.log('\n--- PHASE 3.5: Pattern Placement ---');
 
@@ -982,60 +1036,6 @@ const MapGenerator = () => {
           }
         }
       }
-    };
-
-    // Helper: Calculate mirror positions for a template placement
-    const calculateMirrorPositions = (template, row, col) => {
-      const positions = [{row, col}]; // Original position always included
-      const templateHeight = template.length;
-      const templateWidth = template[0].length;
-
-      if (mirrorVertical) {
-        const mirrorCol = CANVAS_WIDTH - col - templateWidth;
-        if (mirrorCol >= 0 && mirrorCol + templateWidth <= CANVAS_WIDTH) {
-          positions.push({row, col: mirrorCol});
-        }
-      }
-
-      if (mirrorHorizontal) {
-        const mirrorRow = CANVAS_HEIGHT - row - templateHeight;
-        if (mirrorRow >= 0 && mirrorRow + templateHeight <= CANVAS_HEIGHT) {
-          positions.push({row: mirrorRow, col});
-        }
-      }
-
-      if (mirrorDiagonal) {
-        const centerRow = (CANVAS_HEIGHT - 1) / 2;
-        const centerCol = (CANVAS_WIDTH - 1) / 2;
-        const mirrorRow = Math.round(2 * centerRow - row - templateHeight + 1);
-        const mirrorCol = Math.round(2 * centerCol - col - templateWidth + 1);
-        if (mirrorRow >= 0 && mirrorRow + templateHeight <= CANVAS_HEIGHT &&
-            mirrorCol >= 0 && mirrorCol + templateWidth <= CANVAS_WIDTH) {
-          positions.push({row: mirrorRow, col: mirrorCol});
-        }
-      }
-
-      if (mirrorVertical && mirrorHorizontal) {
-        const mirrorRow = CANVAS_HEIGHT - row - templateHeight;
-        const mirrorCol = CANVAS_WIDTH - col - templateWidth;
-        if (mirrorRow >= 0 && mirrorRow + templateHeight <= CANVAS_HEIGHT &&
-            mirrorCol >= 0 && mirrorCol + templateWidth <= CANVAS_WIDTH) {
-          positions.push({row: mirrorRow, col: mirrorCol});
-        }
-      }
-
-      // Remove duplicates
-      const uniquePositions = [];
-      const seen = new Set();
-      for (const pos of positions) {
-        const key = `${pos.row},${pos.col}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          uniquePositions.push(pos);
-        }
-      }
-
-      return uniquePositions;
     };
 
     // Helper: Place template at position
@@ -2037,6 +2037,26 @@ const MapGenerator = () => {
 
     // Step 4: Enforce symmetry as final step (force-correct any asymmetries)
     const asymmetriesFixed = enforceSymmetry(placedTiles);
+
+    // Step 4.5: Fix any OTGs created by symmetry enforcement
+    // Mirroring can create new OTGs at the mirror boundaries, so we need one final cleanup
+    if (asymmetriesFixed > 0) {
+      console.log('\n--- Post-Symmetry OTG Cleanup ---');
+      const postSymmetryOTGs = detectAllOTGs(placedTiles);
+      if (postSymmetryOTGs.length > 0) {
+        console.log(`  Found ${postSymmetryOTGs.length} OTGs after symmetry enforcement`);
+        const postSymmetryFixes = fixAllRemainingOTGs(placedTiles);
+        console.log(`  Fixed ${postSymmetryFixes} OTGs created by mirroring`);
+
+        // Re-enforce symmetry after OTG fixes to maintain symmetry
+        if (postSymmetryFixes > 0) {
+          console.log('  Re-enforcing symmetry after OTG fixes...');
+          enforceSymmetry(placedTiles);
+        }
+      } else {
+        console.log('✓ No OTGs created by symmetry enforcement');
+      }
+    }
 
     // FIX 4: COMPREHENSIVE FINAL VALIDATION
     const finalValidation = (tiles) => {
