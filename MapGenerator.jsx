@@ -763,82 +763,7 @@ const MapGenerator = () => {
         }
       }
 
-      // Check 4: CRITICAL OTG PREVENTION - Check for trapped empty space
-      // Get perimeter of template (1-tile around)
-      const perimeterCells = new Set();
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            const tileRow = row + i;
-            const tileCol = col + j;
-
-            // Add all adjacent empty cells to perimeter
-            for (let dr = -1; dr <= 1; dr++) {
-              for (let dc = -1; dc <= 1; dc++) {
-                if (dr === 0 && dc === 0) continue;
-
-                const neighborRow = tileRow + dr;
-                const neighborCol = tileCol + dc;
-
-                if (!isValid(neighborRow, neighborCol)) continue;
-                if (testGrid[neighborRow][neighborCol] === null) {
-                  perimeterCells.add(`${neighborRow},${neighborCol}`);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Check each perimeter empty cell for critical trapping (only check for completely surrounded)
-      for (const cellKey of perimeterCells) {
-        const [cellRow, cellCol] = cellKey.split(',').map(Number);
-
-        // Count empty orthogonal neighbors
-        const orthogonalNeighbors = [
-          [cellRow - 1, cellCol],
-          [cellRow + 1, cellCol],
-          [cellRow, cellCol - 1],
-          [cellRow, cellCol + 1]
-        ];
-
-        let emptyNeighbors = 0;
-        let filledN = false, filledS = false, filledE = false, filledW = false;
-
-        for (let i = 0; i < orthogonalNeighbors.length; i++) {
-          const [nr, nc] = orthogonalNeighbors[i];
-          if (!isValid(nr, nc)) {
-            // Treat edges as filled for this check
-            if (i === 0) filledN = true;
-            if (i === 1) filledS = true;
-            if (i === 2) filledW = true;
-            if (i === 3) filledE = true;
-            continue;
-          }
-
-          if (testGrid[nr][nc] === null) {
-            emptyNeighbors++;
-          } else {
-            // Track which directions are filled
-            if (i === 0) filledN = true;
-            if (i === 1) filledS = true;
-            if (i === 2) filledW = true;
-            if (i === 3) filledE = true;
-          }
-        }
-
-        // RELAXED CHECK: Only reject if completely surrounded (0 empty neighbors) or creates obvious 1-tile gap
-        if (emptyNeighbors === 0) {
-          return false; // Completely trapped - definitely an OTG
-        }
-
-        // Only reject 1-tile corridors if both opposite sides are filled (strict check)
-        if ((filledN && filledS && !filledE && !filledW) || (filledE && filledW && !filledN && !filledS)) {
-          return false; // Would create 1-tile corridor
-        }
-      }
-
-      // Check 5: REMOVED - different terrain adjacency check was too strict
+      // Check 4: REMOVED - perimeter cell check was too strict and blocked valid placements
       // The post-placement OTG detection will catch actual OTGs
 
       // FIX 4: PREVENT CORNER-ONLY TOUCHES - Reject placements that would touch only at corners
@@ -1326,11 +1251,26 @@ const MapGenerator = () => {
           weight *= RECENT_TEMPLATE_WEIGHT_PENALTY;
         }
 
-        // For Showdown: multiply weight by structure size (larger = higher weight)
+        // For Showdown: favor long thin structures over thick rectangles
         if (isShowdown) {
-          const templateSize = countTilesInTemplate(template.pattern);
-          const sizeBonus = Math.sqrt(templateSize); // Scale bonus by square root to avoid extreme skew
-          weight *= sizeBonus;
+          const pattern = template.pattern;
+          const height = pattern.length;
+          const width = pattern[0].length;
+          const maxDim = Math.max(height, width);
+          const minDim = Math.min(height, width);
+
+          // Calculate aspect ratio (length / thickness)
+          const aspectRatio = maxDim / Math.max(1, minDim);
+
+          // Favor structures with high aspect ratio (long and thin)
+          // Ratio 1:1 (square) gets no bonus, ratio 4:1 gets 2x, ratio 6:1 gets 2.5x
+          const aspectBonus = Math.min(2.5, 1 + (aspectRatio - 1) * 0.4);
+
+          // Small size bonus for variety (prefer medium-sized structures)
+          const templateSize = countTilesInTemplate(pattern);
+          const sizeBonus = Math.sqrt(templateSize) * 0.5 + 0.5; // 0.5x to 1.5x
+
+          weight *= aspectBonus * sizeBonus;
         }
 
         adjustedWeights[name] = weight;
@@ -2705,6 +2645,60 @@ const MapGenerator = () => {
 
     console.log(`Structure size violations: ${structureSizeViolations} (should be 0)`);
 
+    // CRITICAL VALIDATION: Check for joint wall+water structures
+    // Both restrict movement, so adjacent wall+water can create huge impassable areas
+    let jointStructureViolations = 0;
+    const wallStructures = identifyAllStructures(placedTiles, TERRAIN_TYPES.WALL);
+    const waterStructures = identifyAllStructures(placedTiles, TERRAIN_TYPES.WATER);
+
+    for (const wallStruct of wallStructures) {
+      for (const waterStruct of waterStructures) {
+        // Check if these structures are adjacent
+        let areAdjacent = false;
+        for (const [wr, wc] of wallStruct) {
+          for (const [watr, watc] of waterStruct) {
+            // Check if wall and water tiles are orthogonally adjacent
+            if ((Math.abs(wr - watr) === 1 && wc === watc) ||
+                (Math.abs(wc - watc) === 1 && wr === watr)) {
+              areAdjacent = true;
+              break;
+            }
+          }
+          if (areAdjacent) break;
+        }
+
+        if (areAdjacent) {
+          // Calculate combined bounding box
+          const allPositions = [...wallStruct, ...waterStruct];
+          const minRow = Math.min(...allPositions.map(p => p[0]));
+          const maxRow = Math.max(...allPositions.map(p => p[0]));
+          const minCol = Math.min(...allPositions.map(p => p[1]));
+          const maxCol = Math.max(...allPositions.map(p => p[1]));
+
+          const combinedHeight = maxRow - minRow + 1;
+          const combinedWidth = maxCol - minCol + 1;
+          const combinedTotalSize = wallStruct.length + waterStruct.length;
+          const combinedMaxLength = Math.max(combinedHeight, combinedWidth);
+          const combinedMaxThickness = Math.min(combinedHeight, combinedWidth);
+
+          // Check combined size limits
+          const sizeMultiplier = isShowdown ? 1.5 : 1;
+          const maxCombinedSize = Math.floor(35 * sizeMultiplier); // Slightly higher than individual
+          const maxCombinedLength = Math.floor(12 * sizeMultiplier);
+          const maxCombinedThickness = Math.floor(4 * sizeMultiplier);
+
+          if (combinedTotalSize > maxCombinedSize ||
+              combinedMaxLength > maxCombinedLength ||
+              combinedMaxThickness > maxCombinedThickness) {
+            console.log(`  ERROR: Joint WALL+WATER at (${minRow},${minCol}): ${wallStruct.length} wall + ${waterStruct.length} water = ${combinedTotalSize} tiles, ${combinedMaxLength}x${combinedMaxThickness}`);
+            jointStructureViolations++;
+          }
+        }
+      }
+    }
+
+    console.log(`Joint wall+water violations: ${jointStructureViolations} (should be 0)`);
+
     // Bush size statistics after merging
     const bushStructuresAfterMerge = identifyAllStructures(placedTiles, TERRAIN_TYPES.GRASS);
     const bushSizes = bushStructuresAfterMerge.map(s => s.length);
@@ -2894,6 +2888,79 @@ const MapGenerator = () => {
       }
     }
 
+    // === TYPE 5: Water Thickness Violations ===
+    // Water should never be 1 tile wide or have 1-tile protrusions
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        if (tiles[row][col] !== TERRAIN_TYPES.WATER) continue;
+
+        // Count water neighbors in all 4 orthogonal directions
+        const N_water = (row > 0 && tiles[row-1][col] === TERRAIN_TYPES.WATER);
+        const S_water = (row < CANVAS_HEIGHT-1 && tiles[row+1][col] === TERRAIN_TYPES.WATER);
+        const E_water = (col < CANVAS_WIDTH-1 && tiles[row][col+1] === TERRAIN_TYPES.WATER);
+        const W_water = (col > 0 && tiles[row][col-1] === TERRAIN_TYPES.WATER);
+
+        const waterNeighbors = [N_water, S_water, E_water, W_water].filter(Boolean).length;
+
+        // 1-tile wide water: exactly 2 opposite water neighbors (vertical or horizontal strip)
+        if (waterNeighbors === 2 && ((N_water && S_water) || (E_water && W_water))) {
+          otgs.push({row, col, type: 'water-1-tile-wide', severity: 'critical'});
+        }
+
+        // 1-tile water protrusion: only 1 water neighbor
+        if (waterNeighbors === 1) {
+          otgs.push({row, col, type: 'water-protrusion', severity: 'critical'});
+        }
+
+        // Isolated 1x1 water tile
+        if (waterNeighbors === 0) {
+          otgs.push({row, col, type: 'water-isolated', severity: 'critical'});
+        }
+      }
+    }
+
+    // === TYPE 6: Water-Only OTGs ===
+    // Water is unbreakable, so gaps between water structures create OTGs
+    // For this check, treat walls as empty (walkable after breaking)
+    const isWater = (r, c) => {
+      if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) {
+        return false; // Edges are not water
+      }
+      return tiles[r][c] === TERRAIN_TYPES.WATER;
+    };
+
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        // Only check empty tiles and walls (not water or bushes)
+        const tile = tiles[row][col];
+        if (tile === TERRAIN_TYPES.WATER || tile === TERRAIN_TYPES.GRASS) continue;
+
+        // Get water neighbors
+        const N_w  = isWater(row - 1, col);
+        const S_w  = isWater(row + 1, col);
+        const E_w  = isWater(row, col + 1);
+        const W_w  = isWater(row, col - 1);
+        const NE_w = isWater(row - 1, col + 1);
+        const NW_w = isWater(row - 1, col - 1);
+        const SE_w = isWater(row + 1, col + 1);
+        const SW_w = isWater(row + 1, col - 1);
+
+        // Water-only orthogonal corridor
+        if ((N_w && S_w) || (E_w && W_w)) {
+          otgs.push({row, col, type: 'water-only-corridor', severity: 'high'});
+        }
+        // Water-only diagonal OTG
+        else if ((NW_w && SE_w) || (NE_w && SW_w) ||
+                 (N_w && SE_w) || (S_w && NW_w) || (E_w && SW_w) || (W_w && NE_w) ||
+                 (N_w && SW_w) || (S_w && NE_w) || (E_w && NW_w) || (W_w && SE_w)) {
+          const isLCorner = (N_w && W_w) || (N_w && E_w) || (S_w && W_w) || (S_w && E_w);
+          if (!isLCorner) {
+            otgs.push({row, col, type: 'water-only-diagonal', severity: 'high'});
+          }
+        }
+      }
+    }
+
     return otgs;
   };
 
@@ -3062,7 +3129,7 @@ const MapGenerator = () => {
 
           <button
             onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-            className={`bg-cyan-600 hover:bg-cyan-700 text-white p-2 rounded-r-lg transition-all ${leftSidebarOpen ? '' : 'translate-x-0'}`}
+            className={`bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-r-lg transition-all ${leftSidebarOpen ? '' : 'translate-x-0'}`}
             style={{
               position: leftSidebarOpen ? 'relative' : 'absolute',
               left: leftSidebarOpen ? 0 : 0
@@ -3074,7 +3141,7 @@ const MapGenerator = () => {
 
         <div className="flex flex-col items-center gap-4 flex-1">
           <div
-            className="relative inline-block"
+            className="relative flex items-center justify-center"
             style={{
               height: `${(CANVAS_HEIGHT * CURRENT_TILE_SIZE + 8) * zoom}px`,
               width: `${(CANVAS_WIDTH * CURRENT_TILE_SIZE + 8) * zoom}px`,
@@ -3083,12 +3150,12 @@ const MapGenerator = () => {
           >
             <div
               ref={canvasRef}
-              className="inline-block border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
+              className="border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
               style={{
                 background: '#FFE4B3',
                 userSelect: 'none',
                 transform: `scale(${zoom})`,
-                transformOrigin: 'top center',
+                transformOrigin: 'center center',
                 transition: 'transform 0.2s ease'
               }}
             >
@@ -3141,14 +3208,14 @@ const MapGenerator = () => {
           {/* Zoom Controls */}
           <div className="flex items-center gap-3 w-full max-w-md bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg p-3 backdrop-blur-sm">
             <button
-              onClick={() => setZoom(Math.max(0.25, zoom - 0.1))}
+              onClick={() => setZoom(Math.max(0.2, zoom - 0.1))}
               className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-lg transition-colors"
             >
               -
             </button>
             <input
               type="range"
-              min="0.25"
+              min="0.2"
               max="2"
               step="0.1"
               value={zoom}
@@ -3271,7 +3338,7 @@ const MapGenerator = () => {
         <div className="fixed right-0 top-20 z-20 flex items-center">
           <button
             onClick={() => setToolbarOpen(!toolbarOpen)}
-            className={`bg-purple-600 hover:bg-purple-700 text-white p-2 rounded-l-lg transition-all ${!toolbarOpen ? 'translate-x-0' : ''}`}
+            className={`bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-l-lg transition-all ${!toolbarOpen ? 'translate-x-0' : ''}`}
             style={{
               position: toolbarOpen ? 'relative' : 'absolute',
               right: toolbarOpen ? 0 : 0
