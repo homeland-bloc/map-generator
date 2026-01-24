@@ -52,10 +52,7 @@ const MapGenerator = () => {
   const handleTileClick = (row, col) => {
     const newTiles = [...tiles.map(r => [...r])];
     newTiles[row][col] = selectedTool;
-    
-    const centerRow = Math.floor(CANVAS_HEIGHT / 2);
-    const centerCol = Math.floor(CANVAS_WIDTH / 2);
-    
+
     if (mirrorVertical) {
       const mirrorCol = CANVAS_WIDTH - 1 - col;
       newTiles[row][mirrorCol] = selectedTool;
@@ -65,10 +62,24 @@ const MapGenerator = () => {
       newTiles[mirrorRow][col] = selectedTool;
     }
     if (mirrorDiagonal) {
-      const offsetRow = row - centerRow;
-      const offsetCol = col - centerCol;
-      const mirrorRow = centerRow - offsetRow;
-      const mirrorCol = centerCol - offsetCol;
+      // For even dimensions (Showdown 60x60), mirror around 2x2 center
+      // For odd dimensions, mirror around single center point
+      let mirrorRow, mirrorCol;
+
+      if (CANVAS_HEIGHT % 2 === 0 && CANVAS_WIDTH % 2 === 0) {
+        // Even dimensions: simple reflection
+        mirrorRow = CANVAS_HEIGHT - 1 - row;
+        mirrorCol = CANVAS_WIDTH - 1 - col;
+      } else {
+        // Odd dimensions: mirror around center point
+        const centerRow = Math.floor(CANVAS_HEIGHT / 2);
+        const centerCol = Math.floor(CANVAS_WIDTH / 2);
+        const offsetRow = row - centerRow;
+        const offsetCol = col - centerCol;
+        mirrorRow = centerRow - offsetRow;
+        mirrorCol = centerCol - offsetCol;
+      }
+
       if (mirrorRow >= 0 && mirrorRow < CANVAS_HEIGHT && mirrorCol >= 0 && mirrorCol < CANVAS_WIDTH) {
         newTiles[mirrorRow][mirrorCol] = selectedTool;
       }
@@ -531,10 +542,23 @@ const MapGenerator = () => {
       }
 
       if (mirrorDiagonal) {
-        const centerRow = (CANVAS_HEIGHT - 1) / 2;
-        const centerCol = (CANVAS_WIDTH - 1) / 2;
-        const mirrorRow = Math.round(2 * centerRow - row - templateHeight + 1);
-        const mirrorCol = Math.round(2 * centerCol - col - templateWidth + 1);
+        // For even dimensions (Showdown 60x60), mirror around the 2x2 center
+        // For odd dimensions (3v3 21x33), mirror around single center point
+        let mirrorRow, mirrorCol;
+
+        if (CANVAS_HEIGHT % 2 === 0 && CANVAS_WIDTH % 2 === 0) {
+          // Even dimensions: mirror around edge between center tiles
+          // For 60x60: center is between 29-30, so mirror: row -> 59-row-height+1
+          mirrorRow = CANVAS_HEIGHT - row - templateHeight;
+          mirrorCol = CANVAS_WIDTH - col - templateWidth;
+        } else {
+          // Odd dimensions: mirror around center point
+          const centerRow = (CANVAS_HEIGHT - 1) / 2;
+          const centerCol = (CANVAS_WIDTH - 1) / 2;
+          mirrorRow = Math.round(2 * centerRow - row - templateHeight + 1);
+          mirrorCol = Math.round(2 * centerCol - col - templateWidth + 1);
+        }
+
         if (mirrorRow >= 0 && mirrorRow + templateHeight <= CANVAS_HEIGHT &&
             mirrorCol >= 0 && mirrorCol + templateWidth <= CANVAS_WIDTH) {
           positions.push({row: mirrorRow, col: mirrorCol});
@@ -766,7 +790,7 @@ const MapGenerator = () => {
         }
       }
 
-      // Check each perimeter empty cell for trapping
+      // Check each perimeter empty cell for critical trapping (only check for completely surrounded)
       for (const cellKey of perimeterCells) {
         const [cellRow, cellCol] = cellKey.split(',').map(Number);
 
@@ -783,7 +807,14 @@ const MapGenerator = () => {
 
         for (let i = 0; i < orthogonalNeighbors.length; i++) {
           const [nr, nc] = orthogonalNeighbors[i];
-          if (!isValid(nr, nc)) continue;
+          if (!isValid(nr, nc)) {
+            // Treat edges as filled for this check
+            if (i === 0) filledN = true;
+            if (i === 1) filledS = true;
+            if (i === 2) filledW = true;
+            if (i === 3) filledE = true;
+            continue;
+          }
 
           if (testGrid[nr][nc] === null) {
             emptyNeighbors++;
@@ -796,47 +827,19 @@ const MapGenerator = () => {
           }
         }
 
-        // Check 1: Empty tile must have 2+ empty orthogonal neighbors
-        if (emptyNeighbors < 2) {
-          return false; // Would create trapped empty space
+        // RELAXED CHECK: Only reject if completely surrounded (0 empty neighbors) or creates obvious 1-tile gap
+        if (emptyNeighbors === 0) {
+          return false; // Completely trapped - definitely an OTG
         }
 
-        // Check 2: Check for 1-tile corridors (filled on opposite sides)
-        if ((filledN && filledS) || (filledE && filledW)) {
+        // Only reject 1-tile corridors if both opposite sides are filled (strict check)
+        if ((filledN && filledS && !filledE && !filledW) || (filledE && filledW && !filledN && !filledS)) {
           return false; // Would create 1-tile corridor
         }
       }
 
-      // Check 5: Check for different terrain adjacency (creates OTG)
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] !== 1) continue;
-
-          const tileRow = row + i;
-          const tileCol = col + j;
-
-          // Check 8-directional neighbors for different terrain
-          for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-              if (dr === 0 && dc === 0) continue;
-
-              const neighborRow = tileRow + dr;
-              const neighborCol = tileCol + dc;
-
-              if (!isValid(neighborRow, neighborCol)) continue;
-
-              const neighborTile = tiles[neighborRow][neighborCol];
-              if (neighborTile === null) continue;
-
-              // Check if neighbor is different terrain type
-              if (neighborTile !== terrainType) {
-                // Would create OTG with different terrain - reject
-                return false;
-              }
-            }
-          }
-        }
-      }
+      // Check 5: REMOVED - different terrain adjacency check was too strict
+      // The post-placement OTG detection will catch actual OTGs
 
       // FIX 4: PREVENT CORNER-ONLY TOUCHES - Reject placements that would touch only at corners
       for (let i = 0; i < templateHeight; i++) {
@@ -2317,81 +2320,109 @@ const MapGenerator = () => {
         currentTileCount += tilesPlaced;
         placedStructures.push({ type: name, position: [row, col], size: tilesPlaced });
 
-        // COMPOSITE WALLS: 15% chance to add 1-2 overlapping wall templates to create merged structures
-        if (type === TERRAIN_TYPES.WALL && Math.random() < 0.15) {
-          const compositeCount = 1 + Math.floor(Math.random() * 2); // 1-2 additional templates
-          const compositePlacements = []; // Track composite placements for potential undo
+        // COMPOSITE WALLS: 10% chance to attach 1 small template to create L-shapes, zigzags, etc.
+        // Only for small base structures to prevent huge merged walls
+        if (type === TERRAIN_TYPES.WALL && tilesPlaced <= 6 && Math.random() < 0.10) {
+          // Try to place ONE small composite that touches the original structure
+          const smallTemplates = Object.entries(templates).filter(([name, tmpl]) => {
+            const size = countTilesInTemplate(tmpl.pattern);
+            return size >= 2 && size <= 4; // Only 2-4 tile templates for composites
+          });
 
-          for (let c = 0; c < compositeCount; c++) {
-            // Choose a nearby position (within 1-3 tiles of original)
-            const offsetRow = Math.floor(Math.random() * 7) - 3; // -3 to +3
-            const offsetCol = Math.floor(Math.random() * 7) - 3;
-            let compRow = row + offsetRow;
-            let compCol = col + offsetCol;
+          if (smallTemplates.length > 0) {
+            // Choose a random small template
+            const [compName, compTemplate] = smallTemplates[Math.floor(Math.random() * smallTemplates.length)];
+            const compTemplatePattern = compTemplate.pattern;
 
-            // Choose a different template for variety
-            const compTemplate = chooseTemplate(templates, compRow, compCol);
+            // Find all positions where this template would touch (not overlap) the original structure
+            const touchingPositions = [];
 
-            // Ensure template fits in map bounds
-            compRow = Math.max(0, Math.min(compRow, CANVAS_HEIGHT - compTemplate.length));
-            compCol = Math.max(0, Math.min(compCol, CANVAS_WIDTH - compTemplate[0].length));
+            for (let testRow = row - compTemplatePattern.length; testRow <= row + template.length + 1; testRow++) {
+              for (let testCol = col - compTemplatePattern[0].length; testCol <= col + template[0].length + 1; testCol++) {
+                // Check if template fits in bounds
+                if (testRow < 0 || testCol < 0 ||
+                    testRow + compTemplatePattern.length > CANVAS_HEIGHT ||
+                    testCol + compTemplatePattern[0].length > CANVAS_WIDTH) {
+                  continue;
+                }
 
-            // Get zone and mirror positions
-            const compZone = getZone(compRow, compCol);
-            const compMirrorPositions = calculateMirrorPositions(compTemplate, compRow, compCol);
+                // Check if this position would make the template touch (share an edge with) the original
+                let touches = false;
+                for (let i = 0; i < compTemplatePattern.length; i++) {
+                  for (let j = 0; j < compTemplatePattern[0].length; j++) {
+                    if (compTemplatePattern[i][j] !== 1) continue;
 
-            // Validate all mirror positions
-            let compValid = true;
-            for (const pos of compMirrorPositions) {
-              const posZone = getZone(pos.row, pos.col);
-              if (!checkPlacementValid(compTemplate, pos.row, pos.col, placedTiles, posZone, type)) {
-                compValid = false;
-                break;
+                    const tRow = testRow + i;
+                    const tCol = testCol + j;
+
+                    // Check 4 orthogonal neighbors for existing structure
+                    const neighbors = [
+                      [tRow - 1, tCol], [tRow + 1, tCol],
+                      [tRow, tCol - 1], [tRow, tCol + 1]
+                    ];
+
+                    for (const [nr, nc] of neighbors) {
+                      if (nr >= 0 && nr < CANVAS_HEIGHT && nc >= 0 && nc < CANVAS_WIDTH) {
+                        if (placedTiles[nr][nc] === type) {
+                          touches = true;
+                          break;
+                        }
+                      }
+                    }
+                    if (touches) break;
+                  }
+                  if (touches) break;
+                }
+
+                if (touches) {
+                  touchingPositions.push({row: testRow, col: testCol});
+                }
               }
             }
 
-            if (compValid) {
-              // Place composite template
-              const compTilesPlaced = placeTemplate(compTemplate, compRow, compCol, type, placedTiles);
+            // Try to place composite at a random touching position
+            if (touchingPositions.length > 0) {
+              const compPos = touchingPositions[Math.floor(Math.random() * touchingPositions.length)];
 
-              // Verify no OTGs created
-              const compOtgs = detectAllOTGs(placedTiles);
-              const compCriticalOTGs = compOtgs.filter(o => o.severity === 'critical' || o.severity === 'high');
+              // Check if placement is valid
+              const compZone = getZone(compPos.row, compPos.col);
+              const compMirrorPositions = calculateMirrorPositions(compTemplatePattern, compPos.row, compPos.col);
 
-              if (compCriticalOTGs.length > 0) {
-                // Undo composite placement
-                undoTemplatePlacement(compTemplate, compRow, compCol, type, placedTiles);
-              } else {
-                // Composite successful
-                currentTileCount += compTilesPlaced;
-                compositePlacements.push({ template: compTemplate, row: compRow, col: compCol, tiles: compTilesPlaced });
+              let compValid = true;
+              for (const pos of compMirrorPositions) {
+                const posZone = getZone(pos.row, pos.col);
+                if (!checkPlacementValid(compTemplatePattern, pos.row, pos.col, placedTiles, posZone, type)) {
+                  compValid = false;
+                  break;
+                }
               }
-            }
-          }
 
-          // Verify final structure size after all composites
-          if (compositePlacements.length > 0) {
-            console.log(`  ✨ Created composite wall: ${compositePlacements.length + 1} merged templates at (${row},${col})`);
+              if (compValid) {
+                // Place composite template
+                const compTilesPlaced = placeTemplate(compTemplatePattern, compPos.row, compPos.col, type, placedTiles);
 
-            // Check if final merged structure exceeds size limits
-            const finalDims = getStructureDimensions(placedTiles, row, col, type);
+                // Check size immediately after placement
+                const dims = getStructureDimensions(placedTiles, row, col, type);
+                const sizeMultiplier = isShowdown ? 1.5 : 1;
+                const maxTotalSize = Math.floor(20 * sizeMultiplier);
+                const maxLength = Math.floor(8 * sizeMultiplier);
+                const maxThickness = Math.floor(3 * sizeMultiplier);
 
-            let maxTotalSize, maxLength, maxThickness;
-            const sizeMultiplier = isShowdown ? 1.5 : 1;
+                // Verify no OTGs and size limits
+                const compOtgs = detectAllOTGs(placedTiles);
+                const compCriticalOTGs = compOtgs.filter(o => o.severity === 'critical' || o.severity === 'high');
 
-            if (type === TERRAIN_TYPES.WALL) {
-              maxTotalSize = Math.floor(20 * sizeMultiplier);
-              maxLength = Math.floor(8 * sizeMultiplier);
-              maxThickness = Math.floor(3 * sizeMultiplier);
-            }
-
-            if (finalDims.totalSize > maxTotalSize || finalDims.maxLength > maxLength || finalDims.maxThickness > maxThickness) {
-              console.log(`  ⚠ Composite wall exceeded limits (${finalDims.totalSize} tiles, ${finalDims.maxLength}x${finalDims.maxThickness}) - undoing all composites`);
-
-              // Undo all composite placements
-              for (const comp of compositePlacements) {
-                undoTemplatePlacement(comp.template, comp.row, comp.col, type, placedTiles);
-                currentTileCount -= comp.tiles;
+                if (compCriticalOTGs.length > 0 ||
+                    dims.totalSize > maxTotalSize ||
+                    dims.maxLength > maxLength ||
+                    dims.maxThickness > maxThickness) {
+                  // Undo composite placement
+                  undoTemplatePlacement(compTemplatePattern, compPos.row, compPos.col, type, placedTiles);
+                } else {
+                  // Composite successful
+                  currentTileCount += compTilesPlaced;
+                  console.log(`  ✨ Attached composite: ${compName} (${compTilesPlaced} tiles) to form merged structure`);
+                }
               }
             }
           }
@@ -3110,7 +3141,7 @@ const MapGenerator = () => {
           {/* Zoom Controls */}
           <div className="flex items-center gap-3 w-full max-w-md bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg p-3 backdrop-blur-sm">
             <button
-              onClick={() => setZoom(Math.max(0.25, zoom - 0.25))}
+              onClick={() => setZoom(Math.max(0.25, zoom - 0.1))}
               className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-lg transition-colors"
             >
               -
@@ -3119,13 +3150,13 @@ const MapGenerator = () => {
               type="range"
               min="0.25"
               max="2"
-              step="0.25"
+              step="0.1"
               value={zoom}
               onChange={(e) => setZoom(parseFloat(e.target.value))}
               className="flex-1 accent-purple-500"
             />
             <button
-              onClick={() => setZoom(Math.min(2, zoom + 0.25))}
+              onClick={() => setZoom(Math.min(2, zoom + 0.1))}
               className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-lg transition-colors"
             >
               +
