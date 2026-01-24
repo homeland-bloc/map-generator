@@ -1,9 +1,11 @@
 const React = window.React;
 const { useState, useRef, useEffect } = React;
 
-const CANVAS_WIDTH = 21;
-const CANVAS_HEIGHT = 33;
-const TILE_SIZE = 16;
+// Map size configurations
+const MAP_SIZES = {
+  '3v3': { width: 21, height: 33, tileSize: 16, name: '3v3 (21x33)' },
+  'showdown': { width: 60, height: 60, tileSize: 12, name: 'Showdown (60x60)' }
+};
 
 // Terrain types and their gameplay properties:
 // WALL (🧱): Blocks movement AND shooting - solid cover
@@ -21,7 +23,12 @@ const TERRAIN_TYPES = {
 };
 
 const MapGenerator = () => {
-  const [tiles, setTiles] = useState(() => 
+  const [mapSize, setMapSize] = useState('3v3');
+  const CANVAS_WIDTH = MAP_SIZES[mapSize].width;
+  const CANVAS_HEIGHT = MAP_SIZES[mapSize].height;
+  const CURRENT_CURRENT_TILE_SIZE = MAP_SIZES[mapSize].tileSize;
+
+  const [tiles, setTiles] = useState(() =>
     Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(null))
   );
   const [selectedTool, setSelectedTool] = useState(TERRAIN_TYPES.WALL);
@@ -217,9 +224,10 @@ const MapGenerator = () => {
     const placedStructures = [];
     const totalTiles = CANVAS_WIDTH * CANVAS_HEIGHT;
 
-    // Map zone helpers
-    const MID_STRIP_START = 11;
-    const MID_STRIP_END = 21;
+    // Map zone helpers - scaled based on map size
+    const isShowdown = mapSize === 'showdown';
+    const MID_STRIP_START = isShowdown ? Math.floor(CANVAS_HEIGHT * 0.33) : 11;
+    const MID_STRIP_END = isShowdown ? Math.floor(CANVAS_HEIGHT * 0.67) : 21;
     const isInMidStrip = (row) => row >= MID_STRIP_START && row <= MID_STRIP_END;
 
     // ===== PHASE 1: DEFINE STRUCTURE TEMPLATES =====
@@ -341,7 +349,7 @@ const MapGenerator = () => {
 
     const targetWalls = Math.floor((wallDensity / 100) * totalTiles);
     const targetBushes = Math.floor((grassDensity / 100) * totalTiles);
-    const targetWater = Math.min(Math.floor((waterDensity / 100) * totalTiles), totalTiles * 0.1); // Cap at 10%
+    const targetWater = Math.floor((waterDensity / 100) * totalTiles); // No cap - respect slider value
 
     console.log(`  Target walls: ${targetWalls} tiles (${wallDensity}%)`);
     console.log(`  Target bushes: ${targetBushes} tiles (${grassDensity}%)`);
@@ -486,6 +494,433 @@ const MapGenerator = () => {
       }
 
       return uniquePositions;
+    };
+
+    // FIX 5: SECTION-BASED DISTRIBUTION TRACKING
+    const SECTIONS_GRID = 3; // 3x3 grid
+    const sectionCoverage = Array(SECTIONS_GRID).fill(null).map(() => Array(SECTIONS_GRID).fill(0));
+    const sectionTotal = Array(SECTIONS_GRID).fill(null).map(() => Array(SECTIONS_GRID).fill(0));
+
+    // Calculate section totals
+    for (let row = 0; row < CANVAS_HEIGHT; row++) {
+      for (let col = 0; col < CANVAS_WIDTH; col++) {
+        const sectionRow = Math.floor(row / (CANVAS_HEIGHT / SECTIONS_GRID));
+        const sectionCol = Math.floor(col / (CANVAS_WIDTH / SECTIONS_GRID));
+        sectionTotal[Math.min(sectionRow, SECTIONS_GRID-1)][Math.min(sectionCol, SECTIONS_GRID-1)]++;
+      }
+    }
+
+    const getSectionCoverage = (row, col, tiles) => {
+      const sectionRow = Math.floor(row / (CANVAS_HEIGHT / SECTIONS_GRID));
+      const sectionCol = Math.floor(col / (CANVAS_WIDTH / SECTIONS_GRID));
+      const sr = Math.min(sectionRow, SECTIONS_GRID-1);
+      const sc = Math.min(sectionCol, SECTIONS_GRID-1);
+
+      // Count filled tiles in this section
+      let filled = 0;
+      const rowStart = sr * Math.floor(CANVAS_HEIGHT / SECTIONS_GRID);
+      const rowEnd = Math.min(rowStart + Math.floor(CANVAS_HEIGHT / SECTIONS_GRID), CANVAS_HEIGHT);
+      const colStart = sc * Math.floor(CANVAS_WIDTH / SECTIONS_GRID);
+      const colEnd = Math.min(colStart + Math.floor(CANVAS_WIDTH / SECTIONS_GRID), CANVAS_WIDTH);
+
+      for (let r = rowStart; r < rowEnd; r++) {
+        for (let c = colStart; c < colEnd; c++) {
+          if (tiles[r][c] !== null) filled++;
+        }
+      }
+
+      return sectionTotal[sr][sc] > 0 ? filled / sectionTotal[sr][sc] : 0;
+    };
+
+    // FIX 3: CHECK INTERNAL CORNERS FOR L/T-SHAPES
+    const checkLShapeInternalCorners = (template, row, col, tiles) => {
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
+
+      // Create test grid with template virtually placed
+      const testGrid = tiles.map(r => [...r]);
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            testGrid[row + i][col + j] = TERRAIN_TYPES.WALL; // Placeholder terrain type
+          }
+        }
+      }
+
+      // Identify internal corners (tiles with 1 in template that have empty space in template)
+      const internalCorners = [];
+
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            // Check if this is an internal corner by looking at template neighbors
+            const hasEmptyInTemplate = [
+              [i-1, j], [i+1, j], [i, j-1], [i, j+1]
+            ].some(([ti, tj]) => {
+              if (ti >= 0 && ti < templateHeight && tj >= 0 && tj < templateWidth) {
+                return template[ti][tj] === 0;
+              }
+              return false;
+            });
+
+            if (hasEmptyInTemplate) {
+              internalCorners.push([i, j]);
+            }
+          }
+        }
+      }
+
+      // Check each internal corner
+      for (const [ti, tj] of internalCorners) {
+        const cornerRow = row + ti;
+        const cornerCol = col + tj;
+
+        // Check tiles adjacent to this corner position
+        const adjacentChecks = [
+          [cornerRow-1, cornerCol], [cornerRow+1, cornerCol],
+          [cornerRow, cornerCol-1], [cornerRow, cornerCol+1]
+        ];
+
+        for (const [adjRow, adjCol] of adjacentChecks) {
+          if (!isValid(adjRow, adjCol)) continue;
+          if (testGrid[adjRow][adjCol] !== null) continue; // Already filled
+
+          // Count how many orthogonal sides are blocked by filled tiles (using test grid)
+          const blockedSides = [
+            [adjRow-1, adjCol], [adjRow+1, adjCol],
+            [adjRow, adjCol-1], [adjRow, adjCol+1]
+          ].filter(([r, c]) => {
+            if (!isValid(r, c)) return true; // Edge counts as blocked
+            return testGrid[r][c] !== null; // Filled tile counts as blocked
+          }).length;
+
+          // Only reject if truly trapped (3+ sides blocked)
+          if (blockedSides >= 3) {
+            return false; // Would create OTG at internal corner
+          }
+        }
+      }
+
+      return true;
+    };
+
+    // CRITICAL: Placement validation function (prevents OTGs and enforces size limits)
+    const checkPlacementValid = (template, row, col, tiles, zone, terrainType) => {
+      const templateHeight = template.length;
+      const templateWidth = template[0].length;
+
+      // Check 1: Does template fit in bounds?
+      if (row < 0 || col < 0 || row + templateHeight > CANVAS_HEIGHT || col + templateWidth > CANVAS_WIDTH) {
+        return false;
+      }
+
+      // Check 2: Does template overlap existing structure?
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1 && tiles[row + i][col + j] !== null) {
+            return false;
+          }
+        }
+      }
+
+      // Check 3: Create test grid with template virtually placed
+      const testGrid = tiles.map(r => [...r]);
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            testGrid[row + i][col + j] = terrainType;
+          }
+        }
+      }
+
+      // Check 4: CRITICAL OTG PREVENTION - Check for trapped empty space
+      // Get perimeter of template (1-tile around)
+      const perimeterCells = new Set();
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            const tileRow = row + i;
+            const tileCol = col + j;
+
+            // Add all adjacent empty cells to perimeter
+            for (let dr = -1; dr <= 1; dr++) {
+              for (let dc = -1; dc <= 1; dc++) {
+                if (dr === 0 && dc === 0) continue;
+
+                const neighborRow = tileRow + dr;
+                const neighborCol = tileCol + dc;
+
+                if (!isValid(neighborRow, neighborCol)) continue;
+                if (testGrid[neighborRow][neighborCol] === null) {
+                  perimeterCells.add(`${neighborRow},${neighborCol}`);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Check each perimeter empty cell for trapping
+      for (const cellKey of perimeterCells) {
+        const [cellRow, cellCol] = cellKey.split(',').map(Number);
+
+        // Count empty orthogonal neighbors
+        const orthogonalNeighbors = [
+          [cellRow - 1, cellCol],
+          [cellRow + 1, cellCol],
+          [cellRow, cellCol - 1],
+          [cellRow, cellCol + 1]
+        ];
+
+        let emptyNeighbors = 0;
+        let filledN = false, filledS = false, filledE = false, filledW = false;
+
+        for (let i = 0; i < orthogonalNeighbors.length; i++) {
+          const [nr, nc] = orthogonalNeighbors[i];
+          if (!isValid(nr, nc)) continue;
+
+          if (testGrid[nr][nc] === null) {
+            emptyNeighbors++;
+          } else {
+            // Track which directions are filled
+            if (i === 0) filledN = true;
+            if (i === 1) filledS = true;
+            if (i === 2) filledW = true;
+            if (i === 3) filledE = true;
+          }
+        }
+
+        // Check 1: Empty tile must have 2+ empty orthogonal neighbors
+        if (emptyNeighbors < 2) {
+          return false; // Would create trapped empty space
+        }
+
+        // Check 2: Check for 1-tile corridors (filled on opposite sides)
+        if ((filledN && filledS) || (filledE && filledW)) {
+          return false; // Would create 1-tile corridor
+        }
+      }
+
+      // Check 5: Check for different terrain adjacency (creates OTG)
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] !== 1) continue;
+
+          const tileRow = row + i;
+          const tileCol = col + j;
+
+          // Check 8-directional neighbors for different terrain
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              if (dr === 0 && dc === 0) continue;
+
+              const neighborRow = tileRow + dr;
+              const neighborCol = tileCol + dc;
+
+              if (!isValid(neighborRow, neighborCol)) continue;
+
+              const neighborTile = tiles[neighborRow][neighborCol];
+              if (neighborTile === null) continue;
+
+              // Check if neighbor is different terrain type
+              if (neighborTile !== terrainType) {
+                // Would create OTG with different terrain - reject
+                return false;
+              }
+            }
+          }
+        }
+      }
+
+      // FIX 4: PREVENT CORNER-ONLY TOUCHES - Reject placements that would touch only at corners
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] !== 1) continue;
+
+          const tileRow = row + i;
+          const tileCol = col + j;
+
+          // Get all 8 neighbors
+          const N  = isValid(tileRow-1, tileCol) ? tiles[tileRow-1][tileCol] : null;
+          const S  = isValid(tileRow+1, tileCol) ? tiles[tileRow+1][tileCol] : null;
+          const E  = isValid(tileRow, tileCol+1) ? tiles[tileRow][tileCol+1] : null;
+          const W  = isValid(tileRow, tileCol-1) ? tiles[tileRow][tileCol-1] : null;
+          const NE = isValid(tileRow-1, tileCol+1) ? tiles[tileRow-1][tileCol+1] : null;
+          const NW = isValid(tileRow-1, tileCol-1) ? tiles[tileRow-1][tileCol-1] : null;
+          const SE = isValid(tileRow+1, tileCol+1) ? tiles[tileRow+1][tileCol+1] : null;
+          const SW = isValid(tileRow+1, tileCol-1) ? tiles[tileRow+1][tileCol-1] : null;
+
+          const orthogonalNeighbors = [N, S, E, W].filter(n => n !== null && n === terrainType);
+          const diagonalNeighbors = [NE, NW, SE, SW].filter(n => n !== null && n === terrainType);
+
+          // If has diagonal neighbors but NO orthogonal neighbors: REJECT
+          // This means structure would touch only at corner
+          if (diagonalNeighbors.length > 0 && orthogonalNeighbors.length === 0) {
+            return false; // Would create corner-only touch
+          }
+        }
+      }
+
+      // Check 6: STRICT size limits when structures connect
+      // Check if template would connect to existing same-terrain structure
+      const connectedStructures = new Set();
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] !== 1) continue;
+
+          const tileRow = row + i;
+          const tileCol = col + j;
+
+          // Check orthogonal neighbors
+          [[tileRow-1, tileCol], [tileRow+1, tileCol], [tileRow, tileCol-1], [tileRow, tileCol+1]].forEach(([nr, nc]) => {
+            if (!isValid(nr, nc)) return;
+            if (tiles[nr][nc] === terrainType) {
+              connectedStructures.add(`${nr},${nc}`);
+            }
+          });
+        }
+      }
+
+      // If connecting to existing structure, check combined size limits
+      if (connectedStructures.size > 0) {
+        // Get any connected structure position
+        const connectedPos = Array.from(connectedStructures)[0].split(',').map(Number);
+
+        // Calculate combined structure dimensions using testGrid
+        const dims = getStructureDimensions(testGrid, connectedPos[0], connectedPos[1], terrainType);
+
+        // STRICT size limits - scale up for Showdown maps
+        let maxTotalSize, maxLength, maxThickness, minThickness;
+        const sizeMultiplier = isShowdown ? 2.5 : 1;
+
+        if (terrainType === TERRAIN_TYPES.WALL) {
+          maxTotalSize = Math.floor(20 * sizeMultiplier);
+          maxLength = Math.floor(8 * sizeMultiplier);
+          maxThickness = Math.floor(3 * sizeMultiplier);
+          minThickness = 1;
+        } else if (terrainType === TERRAIN_TYPES.GRASS) {
+          maxTotalSize = Math.floor(25 * sizeMultiplier);
+          maxLength = Math.floor(10 * sizeMultiplier);
+          maxThickness = Math.floor(4 * sizeMultiplier);
+          minThickness = 1;
+        } else { // WATER
+          maxTotalSize = Math.floor(25 * sizeMultiplier);
+          maxLength = Math.floor(12 * sizeMultiplier);
+          maxThickness = Math.floor(5 * sizeMultiplier);  // Max 5 tiles thick (12 for Showdown)
+          minThickness = 2;  // Min 2 tiles thick - no single-tile protrusions
+        }
+
+        if (dims.totalSize > maxTotalSize || dims.maxLength > maxLength ||
+            dims.maxThickness > maxThickness || dims.maxThickness < minThickness) {
+          return false; // Would exceed size limits or be too thin
+        }
+      }
+
+      // Check 7: Section balance
+      // Count how many tiles would go in mid vs backside
+      let midTiles = 0, backsideTiles = 0;
+      for (let i = 0; i < templateHeight; i++) {
+        for (let j = 0; j < templateWidth; j++) {
+          if (template[i][j] === 1) {
+            if (isInMidStrip(row + i)) midTiles++;
+            else backsideTiles++;
+          }
+        }
+      }
+
+      // Calculate current coverage
+      let currentMidFilled = 0, currentMidTotal = 0;
+      let currentBacksideFilled = 0, currentBacksideTotal = 0;
+
+      for (let r = 0; r < CANVAS_HEIGHT; r++) {
+        for (let c = 0; c < CANVAS_WIDTH; c++) {
+          if (isInMidStrip(r)) {
+            currentMidTotal++;
+            if (tiles[r][c] !== null) currentMidFilled++;
+          } else {
+            currentBacksideTotal++;
+            if (tiles[r][c] !== null) currentBacksideFilled++;
+          }
+        }
+      }
+
+      const currentMidCoverage = currentMidFilled / currentMidTotal;
+      const currentBacksideCoverage = currentBacksideFilled / currentBacksideTotal;
+
+      const newMidCoverage = (currentMidFilled + midTiles) / currentMidTotal;
+      const newBacksideCoverage = (currentBacksideFilled + backsideTiles) / currentBacksideTotal;
+
+      // Don't allow any section to exceed 50% coverage
+      if (newMidCoverage > 0.50 || newBacksideCoverage > 0.50) {
+        return false;
+      }
+
+      // Check 8: Internal corners check for L/T-shapes (FIX 3)
+      if (terrainType === TERRAIN_TYPES.WALL) {
+        if (!checkLShapeInternalCorners(template, row, col, tiles)) {
+          return false; // Would create OTG at internal corner
+        }
+      }
+
+      // Check 9: Section-based distribution (FIX 5)
+      const sectionCov = getSectionCoverage(row, col, testGrid);
+      if (sectionCov > 0.60) {
+        return false; // Section too dense
+      }
+
+      return true; // Placement is valid!
+    };
+
+    // Helper: Detect OTGs in a radius around a position
+    const detectOTGsInRadius = (tiles, centerRow, centerCol, radius) => {
+      const otgs = [];
+
+      for (let row = Math.max(0, centerRow - radius); row < Math.min(CANVAS_HEIGHT, centerRow + radius + 1); row++) {
+        for (let col = Math.max(0, centerCol - radius); col < Math.min(CANVAS_WIDTH, centerCol + radius + 1); col++) {
+          // Check for 1-tile empty gaps surrounded by filled
+          if (tiles[row][col] === null) {
+            const neighbors4 = [[row-1,col], [row+1,col], [row,col-1], [row,col+1]]
+              .filter(([r, c]) => isValid(r, c));
+
+            if (neighbors4.length === 4) {
+              const filledNeighbors = neighbors4.filter(([r, c]) => tiles[r][c] !== null);
+              if (filledNeighbors.length === 4) {
+                otgs.push({row, col, type: '1-tile gap'});
+              }
+            }
+
+            // Check for 1-tile corridors
+            const N = isValid(row-1, col) ? tiles[row-1][col] : null;
+            const S = isValid(row+1, col) ? tiles[row+1][col] : null;
+            const E = isValid(row, col+1) ? tiles[row][col+1] : null;
+            const W = isValid(row, col-1) ? tiles[row][col-1] : null;
+
+            if ((N !== null && S !== null) || (E !== null && W !== null)) {
+              otgs.push({row, col, type: '1-tile corridor'});
+            }
+          }
+
+          // Check for 1-tile protrusions of different terrain
+          const tile = tiles[row][col];
+          if (tile !== null) {
+            const neighbors8 = [
+              [row-1,col], [row+1,col], [row,col-1], [row,col+1],
+              [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
+            ].filter(([r, c]) => isValid(r, c));
+
+            const sameTypeNeighbors = neighbors8.filter(([r, c]) => tiles[r][c] === tile);
+            const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
+              tiles[r][c] !== null && tiles[r][c] !== tile
+            );
+
+            if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
+              otgs.push({row, col, type: '1-tile protrusion'});
+            }
+          }
+        }
+      }
+
+      return otgs;
     };
 
     // ===== PHASE 3.5: PATTERN PLACEMENT MODES =====
@@ -703,319 +1138,6 @@ const MapGenerator = () => {
         maxLength: Math.max(height, width),
         maxThickness: Math.min(height, width)
       };
-    };
-
-    // CRITICAL: Placement validation function (prevents OTGs and enforces size limits)
-    const checkPlacementValid = (template, row, col, tiles, zone, terrainType) => {
-      const templateHeight = template.length;
-      const templateWidth = template[0].length;
-
-      // Check 1: Does template fit in bounds?
-      if (row < 0 || col < 0 || row + templateHeight > CANVAS_HEIGHT || col + templateWidth > CANVAS_WIDTH) {
-        return false;
-      }
-
-      // Check 2: Does template overlap existing structure?
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1 && tiles[row + i][col + j] !== null) {
-            return false;
-          }
-        }
-      }
-
-      // Check 3: Create test grid with template virtually placed
-      const testGrid = tiles.map(r => [...r]);
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            testGrid[row + i][col + j] = terrainType;
-          }
-        }
-      }
-
-      // Check 4: CRITICAL OTG PREVENTION - Check for trapped empty space
-      // Get perimeter of template (1-tile around)
-      const perimeterCells = new Set();
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            const tileRow = row + i;
-            const tileCol = col + j;
-
-            // Add all adjacent empty cells to perimeter
-            for (let dr = -1; dr <= 1; dr++) {
-              for (let dc = -1; dc <= 1; dc++) {
-                if (dr === 0 && dc === 0) continue;
-
-                const neighborRow = tileRow + dr;
-                const neighborCol = tileCol + dc;
-
-                if (!isValid(neighborRow, neighborCol)) continue;
-                if (testGrid[neighborRow][neighborCol] === null) {
-                  perimeterCells.add(`${neighborRow},${neighborCol}`);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Check each perimeter empty cell for trapping
-      for (const cellKey of perimeterCells) {
-        const [cellRow, cellCol] = cellKey.split(',').map(Number);
-
-        // Count empty orthogonal neighbors
-        const orthogonalNeighbors = [
-          [cellRow - 1, cellCol],
-          [cellRow + 1, cellCol],
-          [cellRow, cellCol - 1],
-          [cellRow, cellCol + 1]
-        ];
-
-        let emptyNeighbors = 0;
-        let filledN = false, filledS = false, filledE = false, filledW = false;
-
-        for (let i = 0; i < orthogonalNeighbors.length; i++) {
-          const [nr, nc] = orthogonalNeighbors[i];
-          if (!isValid(nr, nc)) continue;
-
-          if (testGrid[nr][nc] === null) {
-            emptyNeighbors++;
-          } else {
-            // Track which directions are filled
-            if (i === 0) filledN = true;
-            if (i === 1) filledS = true;
-            if (i === 2) filledW = true;
-            if (i === 3) filledE = true;
-          }
-        }
-
-        // Check 1: Empty tile must have 2+ empty orthogonal neighbors
-        if (emptyNeighbors < 2) {
-          return false; // Would create trapped empty space
-        }
-
-        // Check 2: Check for 1-tile corridors (filled on opposite sides)
-        if ((filledN && filledS) || (filledE && filledW)) {
-          return false; // Would create 1-tile corridor
-        }
-      }
-
-      // Check 5: Check for different terrain adjacency (creates OTG)
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] !== 1) continue;
-
-          const tileRow = row + i;
-          const tileCol = col + j;
-
-          // Check 8-directional neighbors for different terrain
-          for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-              if (dr === 0 && dc === 0) continue;
-
-              const neighborRow = tileRow + dr;
-              const neighborCol = tileCol + dc;
-
-              if (!isValid(neighborRow, neighborCol)) continue;
-
-              const neighborTile = tiles[neighborRow][neighborCol];
-              if (neighborTile === null) continue;
-
-              // Check if neighbor is different terrain type
-              if (neighborTile !== terrainType) {
-                // Would create OTG with different terrain - reject
-                return false;
-              }
-            }
-          }
-        }
-      }
-
-      // FIX 4: PREVENT CORNER-ONLY TOUCHES - Reject placements that would touch only at corners
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] !== 1) continue;
-
-          const tileRow = row + i;
-          const tileCol = col + j;
-
-          // Get all 8 neighbors
-          const N  = isValid(tileRow-1, tileCol) ? tiles[tileRow-1][tileCol] : null;
-          const S  = isValid(tileRow+1, tileCol) ? tiles[tileRow+1][tileCol] : null;
-          const E  = isValid(tileRow, tileCol+1) ? tiles[tileRow][tileCol+1] : null;
-          const W  = isValid(tileRow, tileCol-1) ? tiles[tileRow][tileCol-1] : null;
-          const NE = isValid(tileRow-1, tileCol+1) ? tiles[tileRow-1][tileCol+1] : null;
-          const NW = isValid(tileRow-1, tileCol-1) ? tiles[tileRow-1][tileCol-1] : null;
-          const SE = isValid(tileRow+1, tileCol+1) ? tiles[tileRow+1][tileCol+1] : null;
-          const SW = isValid(tileRow+1, tileCol-1) ? tiles[tileRow+1][tileCol-1] : null;
-
-          const orthogonalNeighbors = [N, S, E, W].filter(n => n !== null && n === terrainType);
-          const diagonalNeighbors = [NE, NW, SE, SW].filter(n => n !== null && n === terrainType);
-
-          // If has diagonal neighbors but NO orthogonal neighbors: REJECT
-          // This means structure would touch only at corner
-          if (diagonalNeighbors.length > 0 && orthogonalNeighbors.length === 0) {
-            return false; // Would create corner-only touch
-          }
-        }
-      }
-
-      // Check 6: STRICT size limits when structures connect
-      // Check if template would connect to existing same-terrain structure
-      const connectedStructures = new Set();
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] !== 1) continue;
-
-          const tileRow = row + i;
-          const tileCol = col + j;
-
-          // Check orthogonal neighbors
-          [[tileRow-1, tileCol], [tileRow+1, tileCol], [tileRow, tileCol-1], [tileRow, tileCol+1]].forEach(([nr, nc]) => {
-            if (!isValid(nr, nc)) return;
-            if (tiles[nr][nc] === terrainType) {
-              connectedStructures.add(`${nr},${nc}`);
-            }
-          });
-        }
-      }
-
-      // If connecting to existing structure, check combined size limits
-      if (connectedStructures.size > 0) {
-        // Get any connected structure position
-        const connectedPos = Array.from(connectedStructures)[0].split(',').map(Number);
-
-        // Calculate combined structure dimensions using testGrid
-        const dims = getStructureDimensions(testGrid, connectedPos[0], connectedPos[1], terrainType);
-
-        // STRICT size limits
-        let maxTotalSize, maxLength, maxThickness;
-        if (terrainType === TERRAIN_TYPES.WALL) {
-          maxTotalSize = 20;
-          maxLength = 8;
-          maxThickness = 3;
-        } else if (terrainType === TERRAIN_TYPES.GRASS) {
-          maxTotalSize = 25;
-          maxLength = 10;
-          maxThickness = 4;
-        } else { // WATER
-          maxTotalSize = 15;
-          maxLength = 8;
-          maxThickness = 3;
-        }
-
-        if (dims.totalSize > maxTotalSize || dims.maxLength > maxLength || dims.maxThickness > maxThickness) {
-          return false; // Would exceed size limits
-        }
-      }
-
-      // Check 7: Section balance
-      // Count how many tiles would go in mid vs backside
-      let midTiles = 0, backsideTiles = 0;
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            if (isInMidStrip(row + i)) midTiles++;
-            else backsideTiles++;
-          }
-        }
-      }
-
-      // Calculate current coverage
-      let currentMidFilled = 0, currentMidTotal = 0;
-      let currentBacksideFilled = 0, currentBacksideTotal = 0;
-
-      for (let r = 0; r < CANVAS_HEIGHT; r++) {
-        for (let c = 0; c < CANVAS_WIDTH; c++) {
-          if (isInMidStrip(r)) {
-            currentMidTotal++;
-            if (tiles[r][c] !== null) currentMidFilled++;
-          } else {
-            currentBacksideTotal++;
-            if (tiles[r][c] !== null) currentBacksideFilled++;
-          }
-        }
-      }
-
-      const currentMidCoverage = currentMidFilled / currentMidTotal;
-      const currentBacksideCoverage = currentBacksideFilled / currentBacksideTotal;
-
-      const newMidCoverage = (currentMidFilled + midTiles) / currentMidTotal;
-      const newBacksideCoverage = (currentBacksideFilled + backsideTiles) / currentBacksideTotal;
-
-      // Don't allow any section to exceed 50% coverage
-      if (newMidCoverage > 0.50 || newBacksideCoverage > 0.50) {
-        return false;
-      }
-
-      // Check 8: Internal corners check for L/T-shapes (FIX 3)
-      if (terrainType === TERRAIN_TYPES.WALL) {
-        if (!checkLShapeInternalCorners(template, row, col, tiles)) {
-          return false; // Would create OTG at internal corner
-        }
-      }
-
-      // Check 9: Section-based distribution (FIX 5)
-      const sectionCov = getSectionCoverage(row, col, testGrid);
-      if (sectionCov > 0.60) {
-        return false; // Section too dense
-      }
-
-      return true; // Placement is valid!
-    };
-
-    // Helper: Detect OTGs in a radius around a position
-    const detectOTGsInRadius = (tiles, centerRow, centerCol, radius) => {
-      const otgs = [];
-
-      for (let row = Math.max(0, centerRow - radius); row < Math.min(CANVAS_HEIGHT, centerRow + radius + 1); row++) {
-        for (let col = Math.max(0, centerCol - radius); col < Math.min(CANVAS_WIDTH, centerCol + radius + 1); col++) {
-          // Check for 1-tile empty gaps surrounded by filled
-          if (tiles[row][col] === null) {
-            const neighbors4 = [[row-1,col], [row+1,col], [row,col-1], [row,col+1]]
-              .filter(([r, c]) => isValid(r, c));
-
-            if (neighbors4.length === 4) {
-              const filledNeighbors = neighbors4.filter(([r, c]) => tiles[r][c] !== null);
-              if (filledNeighbors.length === 4) {
-                otgs.push({row, col, type: '1-tile gap'});
-              }
-            }
-
-            // Check for 1-tile corridors
-            const N = isValid(row-1, col) ? tiles[row-1][col] : null;
-            const S = isValid(row+1, col) ? tiles[row+1][col] : null;
-            const E = isValid(row, col+1) ? tiles[row][col+1] : null;
-            const W = isValid(row, col-1) ? tiles[row][col-1] : null;
-
-            if ((N !== null && S !== null) || (E !== null && W !== null)) {
-              otgs.push({row, col, type: '1-tile corridor'});
-            }
-          }
-
-          // Check for 1-tile protrusions of different terrain
-          const tile = tiles[row][col];
-          if (tile !== null) {
-            const neighbors8 = [
-              [row-1,col], [row+1,col], [row,col-1], [row,col+1],
-              [row-1,col-1], [row-1,col+1], [row+1,col-1], [row+1,col+1]
-            ].filter(([r, c]) => isValid(r, c));
-
-            const sameTypeNeighbors = neighbors8.filter(([r, c]) => tiles[r][c] === tile);
-            const differentTypeNeighbors = neighbors8.filter(([r, c]) =>
-              tiles[r][c] !== null && tiles[r][c] !== tile
-            );
-
-            if (sameTypeNeighbors.length === 0 && differentTypeNeighbors.length > 0) {
-              otgs.push({row, col, type: '1-tile protrusion'});
-            }
-          }
-        }
-      }
-
-      return otgs;
     };
 
     // Helper: Undo template placement
@@ -1302,78 +1424,6 @@ const MapGenerator = () => {
 
       console.log(`  Merged ${mergeCount} bush pairs`);
       return mergeCount;
-    };
-
-    // FIX 3: CHECK INTERNAL CORNERS FOR L/T-SHAPES
-    const checkLShapeInternalCorners = (template, row, col, tiles) => {
-      const templateHeight = template.length;
-      const templateWidth = template[0].length;
-
-      // Create test grid with template virtually placed
-      const testGrid = tiles.map(r => [...r]);
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            testGrid[row + i][col + j] = TERRAIN_TYPES.WALL; // Placeholder terrain type
-          }
-        }
-      }
-
-      // Identify internal corners (tiles with 1 in template that have empty space in template)
-      const internalCorners = [];
-
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            // Check if this is an internal corner by looking at template neighbors
-            const hasEmptyInTemplate = [
-              [i-1, j], [i+1, j], [i, j-1], [i, j+1]
-            ].some(([ti, tj]) => {
-              if (ti >= 0 && ti < templateHeight && tj >= 0 && tj < templateWidth) {
-                return template[ti][tj] === 0;
-              }
-              return false;
-            });
-
-            if (hasEmptyInTemplate) {
-              internalCorners.push([i, j]);
-            }
-          }
-        }
-      }
-
-      // Check each internal corner
-      for (const [ti, tj] of internalCorners) {
-        const cornerRow = row + ti;
-        const cornerCol = col + tj;
-
-        // Check tiles adjacent to this corner position
-        const adjacentChecks = [
-          [cornerRow-1, cornerCol], [cornerRow+1, cornerCol],
-          [cornerRow, cornerCol-1], [cornerRow, cornerCol+1]
-        ];
-
-        for (const [adjRow, adjCol] of adjacentChecks) {
-          if (!isValid(adjRow, adjCol)) continue;
-          if (testGrid[adjRow][adjCol] !== null) continue; // Already filled
-
-          // Count how many orthogonal sides are blocked by filled tiles (using test grid)
-          const blockedSides = [
-            [adjRow-1, adjCol], [adjRow+1, adjCol],
-            [adjRow, adjCol-1], [adjRow, adjCol+1]
-          ].filter(([r, c]) => {
-            if (!isValid(r, c)) return true; // Edge counts as blocked
-            return testGrid[r][c] !== null; // Filled tile counts as blocked
-          }).length;
-
-          // Only reject if truly trapped (3+ sides blocked)
-          if (blockedSides >= 3) {
-            return false; // Would create OTG at internal corner
-          }
-        }
-      }
-
-      return true;
     };
 
     // FIX 2: ENHANCED OTG FIXING WITH MULTIPLE PASSES (10 iterations with detailed logging)
@@ -1839,42 +1889,6 @@ const MapGenerator = () => {
       return filledCount;
     };
 
-    // FIX 5: SECTION-BASED DISTRIBUTION TRACKING
-    const SECTIONS_GRID = 3; // 3x3 grid
-    const sectionCoverage = Array(SECTIONS_GRID).fill(null).map(() => Array(SECTIONS_GRID).fill(0));
-    const sectionTotal = Array(SECTIONS_GRID).fill(null).map(() => Array(SECTIONS_GRID).fill(0));
-
-    // Calculate section totals
-    for (let row = 0; row < CANVAS_HEIGHT; row++) {
-      for (let col = 0; col < CANVAS_WIDTH; col++) {
-        const sectionRow = Math.floor(row / (CANVAS_HEIGHT / SECTIONS_GRID));
-        const sectionCol = Math.floor(col / (CANVAS_WIDTH / SECTIONS_GRID));
-        sectionTotal[Math.min(sectionRow, SECTIONS_GRID-1)][Math.min(sectionCol, SECTIONS_GRID-1)]++;
-      }
-    }
-
-    const getSectionCoverage = (row, col, tiles) => {
-      const sectionRow = Math.floor(row / (CANVAS_HEIGHT / SECTIONS_GRID));
-      const sectionCol = Math.floor(col / (CANVAS_WIDTH / SECTIONS_GRID));
-      const sr = Math.min(sectionRow, SECTIONS_GRID-1);
-      const sc = Math.min(sectionCol, SECTIONS_GRID-1);
-
-      // Count filled tiles in this section
-      let filled = 0;
-      const rowStart = sr * Math.floor(CANVAS_HEIGHT / SECTIONS_GRID);
-      const rowEnd = Math.min(rowStart + Math.floor(CANVAS_HEIGHT / SECTIONS_GRID), CANVAS_HEIGHT);
-      const colStart = sc * Math.floor(CANVAS_WIDTH / SECTIONS_GRID);
-      const colEnd = Math.min(colStart + Math.floor(CANVAS_WIDTH / SECTIONS_GRID), CANVAS_WIDTH);
-
-      for (let r = rowStart; r < rowEnd; r++) {
-        for (let c = colStart; c < colEnd; c++) {
-          if (tiles[r][c] !== null) filled++;
-        }
-      }
-
-      return sectionTotal[sr][sc] > 0 ? filled / sectionTotal[sr][sc] : 0;
-    };
-
     // Place each terrain type
     const terrainConfigs = [
       { type: TERRAIN_TYPES.WALL, targetCount: targetWalls, templates: WALL_TEMPLATES, name: 'WALL' },
@@ -2226,22 +2240,27 @@ const MapGenerator = () => {
           });
         }
 
-        // Check size limits
-        let maxSize, maxLength, maxThickness, typeName;
+        // Check size limits - scale up for Showdown maps
+        let maxSize, maxLength, maxThickness, minThickness, typeName;
+        const sizeMultiplier = isShowdown ? 2.5 : 1;
+
         if (tile === TERRAIN_TYPES.WALL) {
-          maxSize = 20;
-          maxLength = 8;
-          maxThickness = 3;
+          maxSize = Math.floor(20 * sizeMultiplier);
+          maxLength = Math.floor(8 * sizeMultiplier);
+          maxThickness = Math.floor(3 * sizeMultiplier);
+          minThickness = 1;
           typeName = 'WALL';
         } else if (tile === TERRAIN_TYPES.GRASS) {
-          maxSize = 25;
-          maxLength = 10;
-          maxThickness = 4;
+          maxSize = Math.floor(25 * sizeMultiplier);
+          maxLength = Math.floor(10 * sizeMultiplier);
+          maxThickness = Math.floor(4 * sizeMultiplier);
+          minThickness = 1;
           typeName = 'BUSH';
         } else if (tile === TERRAIN_TYPES.WATER) {
-          maxSize = 15;
-          maxLength = 8;
-          maxThickness = 3;
+          maxSize = Math.floor(25 * sizeMultiplier);
+          maxLength = Math.floor(12 * sizeMultiplier);
+          maxThickness = Math.floor(5 * sizeMultiplier);  // Max 5 tiles thick (12 for Showdown)
+          minThickness = 2;  // Min 2 tiles thick - no single-tile protrusions
           typeName = 'WATER';
         }
 
@@ -2255,6 +2274,10 @@ const MapGenerator = () => {
         }
         if (dims.maxThickness > maxThickness) {
           console.log(`  ERROR: ${typeName} at (${row}, ${col}) thickness ${dims.maxThickness} exceeds max ${maxThickness}`);
+          structureSizeViolations++;
+        }
+        if (dims.maxThickness < minThickness) {
+          console.log(`  ERROR: ${typeName} at (${row}, ${col}) thickness ${dims.maxThickness} below min ${minThickness}`);
           structureSizeViolations++;
         }
       }
@@ -2474,8 +2497,8 @@ const MapGenerator = () => {
 
   const downloadMap = () => {
     const canvas = document.createElement('canvas');
-    canvas.width = CANVAS_WIDTH * TILE_SIZE;
-    canvas.height = CANVAS_HEIGHT * TILE_SIZE;
+    canvas.width = CANVAS_WIDTH * CURRENT_TILE_SIZE;
+    canvas.height = CANVAS_HEIGHT * CURRENT_TILE_SIZE;
     const ctx = canvas.getContext('2d');
     
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
@@ -2484,11 +2507,11 @@ const MapGenerator = () => {
         const isEvenCol = col % 2 === 0;
         const isLightSquare = (isEvenRow && isEvenCol) || (!isEvenRow && !isEvenCol);
         ctx.fillStyle = isLightSquare ? '#FFE4B3' : '#FFDAA3';
-        ctx.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        ctx.fillRect(col * CURRENT_TILE_SIZE, row * CURRENT_TILE_SIZE, CURRENT_TILE_SIZE, CURRENT_TILE_SIZE);
         
         if (tiles[row][col]) {
           ctx.fillStyle = tiles[row][col];
-          ctx.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          ctx.fillRect(col * CURRENT_TILE_SIZE, row * CURRENT_TILE_SIZE, CURRENT_TILE_SIZE, CURRENT_TILE_SIZE);
         }
       }
     }
@@ -2582,8 +2605,8 @@ const MapGenerator = () => {
                           }}
                           className="cursor-pointer touch-none"
                           style={{
-                            width: TILE_SIZE + 'px',
-                            height: TILE_SIZE + 'px',
+                            width: CURRENT_TILE_SIZE + 'px',
+                            height: CURRENT_TILE_SIZE + 'px',
                             backgroundColor: tile || (isLightSquare ? '#FFE4B3' : '#FFDAA3'),
                             border: '0.5px solid rgba(0,0,0,0.05)',
                             display: 'flex',
@@ -2601,6 +2624,25 @@ const MapGenerator = () => {
                 ));
               })()}
             </div>
+          </div>
+
+          <div className="w-full max-w-md bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-3 backdrop-blur-sm">
+            <label className="text-white font-semibold text-sm mb-2 block">Map Size</label>
+            <select
+              value={mapSize}
+              onChange={(e) => {
+                setMapSize(e.target.value);
+                // Reset tiles when changing map size
+                const newWidth = MAP_SIZES[e.target.value].width;
+                const newHeight = MAP_SIZES[e.target.value].height;
+                setTiles(Array(newHeight).fill(null).map(() => Array(newWidth).fill(null)));
+              }}
+              className="w-full bg-gray-800 text-white border border-cyan-400 border-opacity-30 rounded px-3 py-2 focus:outline-none focus:border-cyan-400"
+            >
+              {Object.entries(MAP_SIZES).map(([key, value]) => (
+                <option key={key} value={key}>{value.name}</option>
+              ))}
+            </select>
           </div>
 
           <button
