@@ -45,6 +45,8 @@ const MapGenerator = () => {
   const [mapCode, setMapCode] = useState('');
   const [showOTGDebug, setShowOTGDebug] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const canvasRef = useRef(null);
 
   const handleTileClick = (row, col) => {
