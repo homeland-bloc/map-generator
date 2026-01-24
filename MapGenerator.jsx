@@ -897,7 +897,7 @@ const MapGenerator = () => {
 
         // STRICT size limits - scale up for Showdown maps
         let maxTotalSize, maxLength, maxThickness, minThickness;
-        const sizeMultiplier = isShowdown ? 2.5 : 1;
+        const sizeMultiplier = isShowdown ? 1.5 : 1;
 
         if (terrainType === TERRAIN_TYPES.WALL) {
           maxTotalSize = Math.floor(20 * sizeMultiplier);
@@ -1950,9 +1950,23 @@ const MapGenerator = () => {
       console.log('\n--- Enforcing Symmetry ---');
       let asymmetriesFixed = 0;
 
+      // For Showdown (60x60), use 2x2 center at rows/cols 29-30
+      // For 3v3 (21x33 or 33x21), use single center line
+      const isEvenWidth = CANVAS_WIDTH % 2 === 0;
+      const isEvenHeight = CANVAS_HEIGHT % 2 === 0;
+
       if (mirrorVertical) {
+        // For even width (like Showdown 60), center is 2 columns wide
+        // For odd width (like 3v3 21), center is 1 column wide
+        const midPoint = isEvenWidth ? Math.floor(CANVAS_WIDTH / 2) - 1 : Math.floor(CANVAS_WIDTH / 2);
+        const endCol = isEvenWidth ? midPoint : Math.floor(CANVAS_WIDTH / 2);
+
         for (let row = 0; row < CANVAS_HEIGHT; row++) {
-          for (let col = 0; col < Math.floor(CANVAS_WIDTH / 2); col++) {
+          for (let col = 0; col <= endCol; col++) {
+            // Skip center column(s)
+            if (!isEvenWidth && col === Math.floor(CANVAS_WIDTH / 2)) continue;
+            if (isEvenWidth && (col === Math.floor(CANVAS_WIDTH / 2) - 1 || col === Math.floor(CANVAS_WIDTH / 2))) continue;
+
             const mirrorCol = CANVAS_WIDTH - 1 - col;
             const sourceTile = tiles[row][col];
             if (tiles[row][mirrorCol] !== sourceTile) {
@@ -1964,7 +1978,16 @@ const MapGenerator = () => {
       }
 
       if (mirrorHorizontal) {
-        for (let row = 0; row < Math.floor(CANVAS_HEIGHT / 2); row++) {
+        // For even height (like Showdown 60), center is 2 rows wide
+        // For odd height (like 3v3 33), center is 1 row wide
+        const midPoint = isEvenHeight ? Math.floor(CANVAS_HEIGHT / 2) - 1 : Math.floor(CANVAS_HEIGHT / 2);
+        const endRow = isEvenHeight ? midPoint : Math.floor(CANVAS_HEIGHT / 2);
+
+        for (let row = 0; row <= endRow; row++) {
+          // Skip center row(s)
+          if (!isEvenHeight && row === Math.floor(CANVAS_HEIGHT / 2)) continue;
+          if (isEvenHeight && (row === Math.floor(CANVAS_HEIGHT / 2) - 1 || row === Math.floor(CANVAS_HEIGHT / 2))) continue;
+
           for (let col = 0; col < CANVAS_WIDTH; col++) {
             const mirrorRow = CANVAS_HEIGHT - 1 - row;
             const sourceTile = tiles[row][col];
@@ -1977,22 +2000,62 @@ const MapGenerator = () => {
       }
 
       if (mirrorDiagonal) {
-        const centerRow = Math.floor(CANVAS_HEIGHT / 2);
-        const centerCol = Math.floor(CANVAS_WIDTH / 2);
+        // For even dimensions, center is a 2x2 area
+        // For odd dimensions, center is a single point
+        if (isEvenWidth && isEvenHeight) {
+          // Showdown case: 2x2 center at rows/cols 29-30 (for 60x60)
+          const centerRow1 = Math.floor(CANVAS_HEIGHT / 2) - 1;
+          const centerRow2 = Math.floor(CANVAS_HEIGHT / 2);
+          const centerCol1 = Math.floor(CANVAS_WIDTH / 2) - 1;
+          const centerCol2 = Math.floor(CANVAS_WIDTH / 2);
 
-        for (let row = 0; row < CANVAS_HEIGHT; row++) {
-          for (let col = 0; col < CANVAS_WIDTH; col++) {
-            const offsetRow = row - centerRow;
-            const offsetCol = col - centerCol;
-            const mirrorRow = centerRow - offsetRow;
-            const mirrorCol = centerCol - offsetCol;
+          for (let row = 0; row < CANVAS_HEIGHT; row++) {
+            for (let col = 0; col < CANVAS_WIDTH; col++) {
+              // Skip the 2x2 center
+              if ((row === centerRow1 || row === centerRow2) && (col === centerCol1 || col === centerCol2)) {
+                continue;
+              }
 
-            if (mirrorRow >= 0 && mirrorRow < CANVAS_HEIGHT && mirrorCol >= 0 && mirrorCol < CANVAS_WIDTH) {
-              if (row <= mirrorRow || (row === mirrorRow && col <= mirrorCol)) {
-                const sourceTile = tiles[row][col];
-                if (tiles[mirrorRow][mirrorCol] !== sourceTile) {
-                  tiles[mirrorRow][mirrorCol] = sourceTile;
-                  asymmetriesFixed++;
+              const offsetRow = row - centerRow1 - 0.5;
+              const offsetCol = col - centerCol1 - 0.5;
+              const mirrorRow = Math.round(centerRow1 + 0.5 - offsetRow);
+              const mirrorCol = Math.round(centerCol1 + 0.5 - offsetCol);
+
+              if (mirrorRow >= 0 && mirrorRow < CANVAS_HEIGHT && mirrorCol >= 0 && mirrorCol < CANVAS_WIDTH) {
+                // Skip if mirror position is in the 2x2 center
+                if ((mirrorRow === centerRow1 || mirrorRow === centerRow2) && (mirrorCol === centerCol1 || mirrorCol === centerCol2)) {
+                  continue;
+                }
+
+                if (row < mirrorRow || (row === mirrorRow && col <= mirrorCol)) {
+                  const sourceTile = tiles[row][col];
+                  if (tiles[mirrorRow][mirrorCol] !== sourceTile) {
+                    tiles[mirrorRow][mirrorCol] = sourceTile;
+                    asymmetriesFixed++;
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // Odd dimensions: use single center point
+          const centerRow = Math.floor(CANVAS_HEIGHT / 2);
+          const centerCol = Math.floor(CANVAS_WIDTH / 2);
+
+          for (let row = 0; row < CANVAS_HEIGHT; row++) {
+            for (let col = 0; col < CANVAS_WIDTH; col++) {
+              const offsetRow = row - centerRow;
+              const offsetCol = col - centerCol;
+              const mirrorRow = centerRow - offsetRow;
+              const mirrorCol = centerCol - offsetCol;
+
+              if (mirrorRow >= 0 && mirrorRow < CANVAS_HEIGHT && mirrorCol >= 0 && mirrorCol < CANVAS_WIDTH) {
+                if (row <= mirrorRow || (row === mirrorRow && col <= mirrorCol)) {
+                  const sourceTile = tiles[row][col];
+                  if (tiles[mirrorRow][mirrorCol] !== sourceTile) {
+                    tiles[mirrorRow][mirrorCol] = sourceTile;
+                    asymmetriesFixed++;
+                  }
                 }
               }
             }
@@ -2011,7 +2074,7 @@ const MapGenerator = () => {
       // Create a map to track accessible (reachable from edges) empty tiles
       const accessible = Array(CANVAS_HEIGHT).fill(null).map(() => Array(CANVAS_WIDTH).fill(false));
 
-      // Flood fill from all 4 edges to mark accessible empty tiles
+      // Flood fill from all 4 edges to mark accessible empty tiles (iterative to avoid stack overflow)
       const floodFillFromEdge = (startRow, startCol) => {
         if (startRow < 0 || startRow >= CANVAS_HEIGHT || startCol < 0 || startCol >= CANVAS_WIDTH) {
           return;
@@ -2027,14 +2090,31 @@ const MapGenerator = () => {
           return;
         }
 
-        // Mark as accessible
-        accessible[startRow][startCol] = true;
+        // Use iterative flood fill with queue to avoid stack overflow
+        const queue = [[startRow, startCol]];
 
-        // Recursively flood fill to orthogonal neighbors
-        floodFillFromEdge(startRow - 1, startCol); // North
-        floodFillFromEdge(startRow + 1, startCol); // South
-        floodFillFromEdge(startRow, startCol - 1); // West
-        floodFillFromEdge(startRow, startCol + 1); // East
+        while (queue.length > 0) {
+          const [row, col] = queue.shift();
+
+          // Check bounds
+          if (row < 0 || row >= CANVAS_HEIGHT || col < 0 || col >= CANVAS_WIDTH) {
+            continue;
+          }
+
+          // Skip if already visited or not empty
+          if (accessible[row][col] || tiles[row][col] !== null) {
+            continue;
+          }
+
+          // Mark as accessible
+          accessible[row][col] = true;
+
+          // Add orthogonal neighbors to queue
+          queue.push([row - 1, col]); // North
+          queue.push([row + 1, col]); // South
+          queue.push([row, col - 1]); // West
+          queue.push([row, col + 1]); // East
+        }
       };
 
       // Start flood fill from all edge tiles
@@ -2289,8 +2369,31 @@ const MapGenerator = () => {
             }
           }
 
+          // Verify final structure size after all composites
           if (compositePlacements.length > 0) {
             console.log(`  ✨ Created composite wall: ${compositePlacements.length + 1} merged templates at (${row},${col})`);
+
+            // Check if final merged structure exceeds size limits
+            const finalDims = getStructureDimensions(placedTiles, row, col, type);
+
+            let maxTotalSize, maxLength, maxThickness;
+            const sizeMultiplier = isShowdown ? 1.5 : 1;
+
+            if (type === TERRAIN_TYPES.WALL) {
+              maxTotalSize = Math.floor(20 * sizeMultiplier);
+              maxLength = Math.floor(8 * sizeMultiplier);
+              maxThickness = Math.floor(3 * sizeMultiplier);
+            }
+
+            if (finalDims.totalSize > maxTotalSize || finalDims.maxLength > maxLength || finalDims.maxThickness > maxThickness) {
+              console.log(`  ⚠ Composite wall exceeded limits (${finalDims.totalSize} tiles, ${finalDims.maxLength}x${finalDims.maxThickness}) - undoing all composites`);
+
+              // Undo all composite placements
+              for (const comp of compositePlacements) {
+                undoTemplatePlacement(comp.template, comp.row, comp.col, type, placedTiles);
+                currentTileCount -= comp.tiles;
+              }
+            }
           }
         }
 
@@ -2528,7 +2631,7 @@ const MapGenerator = () => {
 
         // Check size limits - scale up for Showdown maps
         let maxSize, maxLength, maxThickness, minThickness, typeName;
-        const sizeMultiplier = isShowdown ? 2.5 : 1;
+        const sizeMultiplier = isShowdown ? 1.5 : 1;
 
         if (tile === TERRAIN_TYPES.WALL) {
           maxSize = Math.floor(20 * sizeMultiplier);
@@ -2881,10 +2984,18 @@ const MapGenerator = () => {
                 <select
                   value={mapSize}
                   onChange={(e) => {
-                    setMapSize(e.target.value);
-                    const newWidth = MAP_SIZES[e.target.value].width;
-                    const newHeight = MAP_SIZES[e.target.value].height;
-                    setTiles(Array(newHeight).fill(null).map(() => Array(newWidth).fill(null)));
+                    const newSize = e.target.value;
+                    if (newSize !== mapSize) {
+                      if (window.confirm('Changing map size will reset the current map. Are you sure?')) {
+                        setMapSize(newSize);
+                        const newWidth = MAP_SIZES[newSize].width;
+                        const newHeight = MAP_SIZES[newSize].height;
+                        setTiles(Array(newHeight).fill(null).map(() => Array(newWidth).fill(null)));
+                      } else {
+                        // User cancelled - reset select to current value
+                        e.target.value = mapSize;
+                      }
+                    }
                   }}
                   className="w-full bg-gray-800 text-white border border-cyan-400 border-opacity-30 rounded px-3 py-2 focus:outline-none focus:border-cyan-400"
                 >
@@ -2934,8 +3045,9 @@ const MapGenerator = () => {
           <div
             className="relative inline-block"
             style={{
-              minHeight: `${(CANVAS_HEIGHT * CURRENT_TILE_SIZE + 8) * zoom}px`,
-              transition: 'min-height 0.2s ease'
+              height: `${(CANVAS_HEIGHT * CURRENT_TILE_SIZE + 8) * zoom}px`,
+              width: `${(CANVAS_WIDTH * CURRENT_TILE_SIZE + 8) * zoom}px`,
+              transition: 'height 0.2s ease, width 0.2s ease'
             }}
           >
             <div
