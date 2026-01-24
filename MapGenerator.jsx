@@ -275,9 +275,9 @@ const MapGenerator = () => {
       S_shape1: { pattern: [[1,1,0],[0,1,1]], weight: 3 },
       S_shape2: { pattern: [[0,1,1],[1,1,0]], weight: 3 },
 
-      // Zig-zag walls
-      zigzag1: { pattern: [[1,0,0],[1,1,0],[0,1,1]], weight: 2 },
-      zigzag2: { pattern: [[0,0,1],[0,1,1],[1,1,0]], weight: 2 },
+      // Zig-zag walls (reduced weight to make rarer)
+      zigzag1: { pattern: [[1,0,0],[1,1,0],[0,1,1]], weight: 0.5 },
+      zigzag2: { pattern: [[0,0,1],[0,1,1],[1,1,0]], weight: 0.5 },
 
       // Plus-shapes (reduced weight to make rarer)
       plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 0.5 },
@@ -2236,6 +2236,63 @@ const MapGenerator = () => {
         // Placement successful
         currentTileCount += tilesPlaced;
         placedStructures.push({ type: name, position: [row, col], size: tilesPlaced });
+
+        // COMPOSITE WALLS: 15% chance to add 1-2 overlapping wall templates to create merged structures
+        if (type === TERRAIN_TYPES.WALL && Math.random() < 0.15) {
+          const compositeCount = 1 + Math.floor(Math.random() * 2); // 1-2 additional templates
+          const compositePlacements = []; // Track composite placements for potential undo
+
+          for (let c = 0; c < compositeCount; c++) {
+            // Choose a nearby position (within 1-3 tiles of original)
+            const offsetRow = Math.floor(Math.random() * 7) - 3; // -3 to +3
+            const offsetCol = Math.floor(Math.random() * 7) - 3;
+            let compRow = row + offsetRow;
+            let compCol = col + offsetCol;
+
+            // Choose a different template for variety
+            const compTemplate = chooseTemplate(templates, compRow, compCol);
+
+            // Ensure template fits in map bounds
+            compRow = Math.max(0, Math.min(compRow, CANVAS_HEIGHT - compTemplate.length));
+            compCol = Math.max(0, Math.min(compCol, CANVAS_WIDTH - compTemplate[0].length));
+
+            // Get zone and mirror positions
+            const compZone = getZone(compRow, compCol);
+            const compMirrorPositions = calculateMirrorPositions(compTemplate, compRow, compCol);
+
+            // Validate all mirror positions
+            let compValid = true;
+            for (const pos of compMirrorPositions) {
+              const posZone = getZone(pos.row, pos.col);
+              if (!checkPlacementValid(compTemplate, pos.row, pos.col, placedTiles, posZone, type)) {
+                compValid = false;
+                break;
+              }
+            }
+
+            if (compValid) {
+              // Place composite template
+              const compTilesPlaced = placeTemplate(compTemplate, compRow, compCol, type, placedTiles);
+
+              // Verify no OTGs created
+              const compOtgs = detectAllOTGs(placedTiles);
+              const compCriticalOTGs = compOtgs.filter(o => o.severity === 'critical' || o.severity === 'high');
+
+              if (compCriticalOTGs.length > 0) {
+                // Undo composite placement
+                undoTemplatePlacement(compTemplate, compRow, compCol, type, placedTiles);
+              } else {
+                // Composite successful
+                currentTileCount += compTilesPlaced;
+                compositePlacements.push({ template: compTemplate, row: compRow, col: compCol, tiles: compTilesPlaced });
+              }
+            }
+          }
+
+          if (compositePlacements.length > 0) {
+            console.log(`  ✨ Created composite wall: ${compositePlacements.length + 1} merged templates at (${row},${col})`);
+          }
+        }
 
         // Track water structure count
         if (type === TERRAIN_TYPES.WATER) {
