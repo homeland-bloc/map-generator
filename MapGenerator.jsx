@@ -763,82 +763,7 @@ const MapGenerator = () => {
         }
       }
 
-      // Check 4: CRITICAL OTG PREVENTION - Check for trapped empty space
-      // Get perimeter of template (1-tile around)
-      const perimeterCells = new Set();
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            const tileRow = row + i;
-            const tileCol = col + j;
-
-            // Add all adjacent empty cells to perimeter
-            for (let dr = -1; dr <= 1; dr++) {
-              for (let dc = -1; dc <= 1; dc++) {
-                if (dr === 0 && dc === 0) continue;
-
-                const neighborRow = tileRow + dr;
-                const neighborCol = tileCol + dc;
-
-                if (!isValid(neighborRow, neighborCol)) continue;
-                if (testGrid[neighborRow][neighborCol] === null) {
-                  perimeterCells.add(`${neighborRow},${neighborCol}`);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Check each perimeter empty cell for critical trapping (only check for completely surrounded)
-      for (const cellKey of perimeterCells) {
-        const [cellRow, cellCol] = cellKey.split(',').map(Number);
-
-        // Count empty orthogonal neighbors
-        const orthogonalNeighbors = [
-          [cellRow - 1, cellCol],
-          [cellRow + 1, cellCol],
-          [cellRow, cellCol - 1],
-          [cellRow, cellCol + 1]
-        ];
-
-        let emptyNeighbors = 0;
-        let filledN = false, filledS = false, filledE = false, filledW = false;
-
-        for (let i = 0; i < orthogonalNeighbors.length; i++) {
-          const [nr, nc] = orthogonalNeighbors[i];
-          if (!isValid(nr, nc)) {
-            // Treat edges as filled for this check
-            if (i === 0) filledN = true;
-            if (i === 1) filledS = true;
-            if (i === 2) filledW = true;
-            if (i === 3) filledE = true;
-            continue;
-          }
-
-          if (testGrid[nr][nc] === null) {
-            emptyNeighbors++;
-          } else {
-            // Track which directions are filled
-            if (i === 0) filledN = true;
-            if (i === 1) filledS = true;
-            if (i === 2) filledW = true;
-            if (i === 3) filledE = true;
-          }
-        }
-
-        // RELAXED CHECK: Only reject if completely surrounded (0 empty neighbors) or creates obvious 1-tile gap
-        if (emptyNeighbors === 0) {
-          return false; // Completely trapped - definitely an OTG
-        }
-
-        // Only reject 1-tile corridors if both opposite sides are filled (strict check)
-        if ((filledN && filledS && !filledE && !filledW) || (filledE && filledW && !filledN && !filledS)) {
-          return false; // Would create 1-tile corridor
-        }
-      }
-
-      // Check 5: REMOVED - different terrain adjacency check was too strict
+      // Check 4: REMOVED - perimeter cell check was too strict and blocked valid placements
       // The post-placement OTG detection will catch actual OTGs
 
       // FIX 4: PREVENT CORNER-ONLY TOUCHES - Reject placements that would touch only at corners
@@ -3074,7 +2999,7 @@ const MapGenerator = () => {
 
         <div className="flex flex-col items-center gap-4 flex-1">
           <div
-            className="relative inline-block"
+            className="relative flex items-center justify-center"
             style={{
               height: `${(CANVAS_HEIGHT * CURRENT_TILE_SIZE + 8) * zoom}px`,
               width: `${(CANVAS_WIDTH * CURRENT_TILE_SIZE + 8) * zoom}px`,
@@ -3083,12 +3008,12 @@ const MapGenerator = () => {
           >
             <div
               ref={canvasRef}
-              className="inline-block border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
+              className="border-4 border-purple-400 border-opacity-50 shadow-2xl touch-none"
               style={{
                 background: '#FFE4B3',
                 userSelect: 'none',
                 transform: `scale(${zoom})`,
-                transformOrigin: 'top center',
+                transformOrigin: 'center center',
                 transition: 'transform 0.2s ease'
               }}
             >
@@ -3141,14 +3066,14 @@ const MapGenerator = () => {
           {/* Zoom Controls */}
           <div className="flex items-center gap-3 w-full max-w-md bg-black bg-opacity-40 border border-purple-400 border-opacity-50 rounded-lg p-3 backdrop-blur-sm">
             <button
-              onClick={() => setZoom(Math.max(0.25, zoom - 0.1))}
+              onClick={() => setZoom(Math.max(0.2, zoom - 0.1))}
               className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-lg transition-colors"
             >
               -
             </button>
             <input
               type="range"
-              min="0.25"
+              min="0.2"
               max="2"
               step="0.1"
               value={zoom}
