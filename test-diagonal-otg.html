@@ -159,8 +159,10 @@
             isOTG = true;
             otgType = 'horizontal-corridor';
           }
-          // TYPE 2: Diagonal OTG (FIXED VERSION)
-          else if ((NW && SE) || (NE && SW) || (N && SE) || (S && NW) || (E && SW) || (W && NE)) {
+          // TYPE 2: Diagonal OTG (FIXED VERSION - ALL 10 PATTERNS)
+          else if ((NW && SE) || (NE && SW) ||
+                   (N && SE) || (S && NW) || (E && SW) || (W && NE) ||
+                   (N && SW) || (S && NE) || (E && NW) || (W && SE)) {
             const isLCorner = (N && W) || (N && E) || (S && W) || (S && E);
 
             if (!isLCorner) {
@@ -171,6 +173,10 @@
               else if (S && NW) otgType = 'diagonal-s-nw';
               else if (E && SW) otgType = 'diagonal-e-sw';
               else if (W && NE) otgType = 'diagonal-w-ne';
+              else if (N && SW) otgType = 'diagonal-n-sw';
+              else if (S && NE) otgType = 'diagonal-s-ne';
+              else if (E && NW) otgType = 'diagonal-e-nw';
+              else if (W && SE) otgType = 'diagonal-w-se';
             }
           }
           // TYPE 3: Three-Sided Trap
@@ -269,9 +275,24 @@
         data: createGrid(5, [[1,1], [3,3]], [[2,2]])
       },
       {
-        name: "Test 2: Walls at (1,1) and (3,2) - Offset Diagonal",
-        description: "Offset diagonal walls should create OTGs at (2,1) and (2,2)",
+        name: "Test 2a: 2x3 Pattern - Walls at (1,1) and (3,2)",
+        description: "2 tiles tall, 3 wide: Should create OTGs at (2,1) and (2,2)",
         data: createGrid(5, [[1,1], [3,2]], [[2,1], [2,2]])
+      },
+      {
+        name: "Test 2b: 2x3 Pattern - Walls at (1,2) and (3,1)",
+        description: "2 tiles tall, 3 wide (rotated): Should create OTGs at (2,1) and (2,2)",
+        data: createGrid(5, [[1,2], [3,1]], [[2,1], [2,2]])
+      },
+      {
+        name: "Test 2c: 3x2 Pattern - Walls at (1,1) and (2,3)",
+        description: "3 tiles tall, 2 wide: Should create OTGs at (1,2) and (2,2)",
+        data: createGrid(5, [[1,1], [2,3]], [[1,2], [2,2]])
+      },
+      {
+        name: "Test 2d: 3x2 Pattern - Walls at (2,1) and (1,3)",
+        description: "3 tiles tall, 2 wide (rotated): Should create OTGs at (1,2) and (2,2)",
+        data: createGrid(5, [[2,1], [1,3]], [[1,2], [2,2]])
       },
       {
         name: "Test 3: L-Shaped Wall (No OTG Expected)",

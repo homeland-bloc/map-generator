@@ -2335,16 +2335,18 @@ const MapGenerator = () => {
 
         // === TYPE 2: Diagonal OTG ===
         // Pattern: Walls positioned diagonally create narrow diagonal passages
-        // This includes:
-        // - Opposite diagonal corners (NW&&SE, NE&&SW)
-        // - Orthogonal + opposite diagonal (N&&SE, S&&NW, E&&SW, W&&NE)
+        // This includes ALL 10 possible diagonal wall combinations:
+        // - Opposite diagonal corners: NW&&SE, NE&&SW
+        // - Orthogonal + diagonal: N&&SE, S&&NW, E&&SW, W&&NE, N&&SW, S&&NE, E&&NW, W&&SE
         //
         // Key insight: Diagonal passages are too narrow for player hitboxes even if
         // orthogonal directions are open. The diagonal squeeze makes movement impossible.
         //
         // IMPORTANT: Exclude L-shaped corners where two adjacent orthogonal walls exist
         // (e.g., N&&W, N&&E, S&&W, S&&E) as these don't create OTGs.
-        else if ((NW && SE) || (NE && SW) || (N && SE) || (S && NW) || (E && SW) || (W && NE)) {
+        else if ((NW && SE) || (NE && SW) ||
+                 (N && SE) || (S && NW) || (E && SW) || (W && NE) ||
+                 (N && SW) || (S && NE) || (E && NW) || (W && SE)) {
           // Check if this is an L-shaped corner (two adjacent orthogonal walls)
           // L-corners have walls on adjacent sides like N&&W, and don't create OTGs
           const isLCorner = (N && W) || (N && E) || (S && W) || (S && E);
@@ -2358,6 +2360,10 @@ const MapGenerator = () => {
             else if (S && NW) otgType = 'diagonal-s-nw';
             else if (E && SW) otgType = 'diagonal-e-sw';
             else if (W && NE) otgType = 'diagonal-w-ne';
+            else if (N && SW) otgType = 'diagonal-n-sw';
+            else if (S && NE) otgType = 'diagonal-s-ne';
+            else if (E && NW) otgType = 'diagonal-e-nw';
+            else if (W && SE) otgType = 'diagonal-w-se';
           }
         }
 
