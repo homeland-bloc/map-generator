@@ -2298,16 +2298,17 @@ const MapGenerator = () => {
     // Helper: Check if a tile is a wall or water (blocking terrain)
     const isBlocking = (row, col) => {
       if (row < 0 || row >= CANVAS_HEIGHT || col < 0 || col >= CANVAS_WIDTH) {
-        return false; // Map edge is NOT blocking (allows passage to outside)
+        return true; // Map edges act as blocking walls for OTG detection
       }
       return tiles[row][col] === TERRAIN_TYPES.WALL || tiles[row][col] === TERRAIN_TYPES.WATER;
     };
 
-    // Scan every empty tile
+    // Scan every walkable tile (empty tiles and bushes)
     for (let row = 0; row < CANVAS_HEIGHT; row++) {
       for (let col = 0; col < CANVAS_WIDTH; col++) {
-        // Skip non-empty tiles
-        if (tiles[row][col] !== null) continue;
+        // Skip walls and water (only check walkable tiles: empty and bushes)
+        const tile = tiles[row][col];
+        if (tile === TERRAIN_TYPES.WALL || tile === TERRAIN_TYPES.WATER) continue;
 
         // Get all 8 neighbors
         const N  = isBlocking(row - 1, col);
