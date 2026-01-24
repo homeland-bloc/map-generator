@@ -2333,31 +2333,31 @@ const MapGenerator = () => {
           otgType = 'horizontal-corridor';
         }
 
-        // === TYPE 2: Diagonal Squeeze ===
-        // Pattern: Walls on opposite diagonal corners create narrow diagonal passage
-        else if (NW && SE) {
-          // Additional check: Is this actually a squeeze or just corner proximity?
-          // It's a squeeze if the orthogonal neighbors don't provide escape
-          const hasNorthEscape = !N;
-          const hasSouthEscape = !S;
-          const hasWestEscape = !W;
-          const hasEastEscape = !E;
+        // === TYPE 2: Diagonal OTG ===
+        // Pattern: Walls positioned diagonally create narrow diagonal passages
+        // This includes:
+        // - Opposite diagonal corners (NW&&SE, NE&&SW)
+        // - Orthogonal + opposite diagonal (N&&SE, S&&NW, E&&SW, W&&NE)
+        //
+        // Key insight: Diagonal passages are too narrow for player hitboxes even if
+        // orthogonal directions are open. The diagonal squeeze makes movement impossible.
+        //
+        // IMPORTANT: Exclude L-shaped corners where two adjacent orthogonal walls exist
+        // (e.g., N&&W, N&&E, S&&W, S&&E) as these don't create OTGs.
+        else if ((NW && SE) || (NE && SW) || (N && SE) || (S && NW) || (E && SW) || (W && NE)) {
+          // Check if this is an L-shaped corner (two adjacent orthogonal walls)
+          // L-corners have walls on adjacent sides like N&&W, and don't create OTGs
+          const isLCorner = (N && W) || (N && E) || (S && W) || (S && E);
 
-          // If blocked on multiple orthogonal sides, it's a squeeze
-          if ((!hasNorthEscape || !hasWestEscape) && (!hasSouthEscape || !hasEastEscape)) {
+          if (!isLCorner) {
             isOTG = true;
-            otgType = 'diagonal-squeeze-nw-se';
-          }
-        }
-        else if (NE && SW) {
-          const hasNorthEscape = !N;
-          const hasSouthEscape = !S;
-          const hasWestEscape = !W;
-          const hasEastEscape = !E;
-
-          if ((!hasNorthEscape || !hasEastEscape) && (!hasSouthEscape || !hasWestEscape)) {
-            isOTG = true;
-            otgType = 'diagonal-squeeze-ne-sw';
+            // Determine specific type for debugging
+            if (NW && SE) otgType = 'diagonal-nw-se';
+            else if (NE && SW) otgType = 'diagonal-ne-sw';
+            else if (N && SE) otgType = 'diagonal-n-se';
+            else if (S && NW) otgType = 'diagonal-s-nw';
+            else if (E && SW) otgType = 'diagonal-e-sw';
+            else if (W && NE) otgType = 'diagonal-w-ne';
           }
         }
 

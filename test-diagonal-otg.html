@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagonal OTG Detection Test</title>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    .test-case {
+      margin: 30px 0;
+      padding: 20px;
+      background: #2a2a2a;
+      border-radius: 8px;
+      border: 2px solid #444;
+    }
+    .test-case h3 {
+      color: #4CAF50;
+      margin-top: 0;
+    }
+    .grid {
+      display: inline-grid;
+      gap: 2px;
+      margin: 10px 0;
+      border: 2px solid #666;
+      padding: 10px;
+      background: #333;
+    }
+    .row {
+      display: flex;
+      gap: 2px;
+    }
+    .cell {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      border: 1px solid #555;
+      position: relative;
+    }
+    .empty { background: #FFE4B3; color: #000; }
+    .wall { background: #8B4513; color: #fff; }
+    .otg {
+      background: #FF4444 !important;
+      font-weight: bold;
+    }
+    .expected-otg::after {
+      content: '?';
+      position: absolute;
+      top: 2px;
+      right: 4px;
+      font-size: 12px;
+      color: yellow;
+    }
+    .result {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .pass { background: #2d5016; color: #90EE90; }
+    .fail { background: #5d1616; color: #ffcccc; }
+    .info {
+      color: #aaa;
+      font-size: 12px;
+      margin-top: 5px;
+    }
+    .legend {
+      margin: 20px 0;
+      padding: 15px;
+      background: #2a2a2a;
+      border-radius: 8px;
+    }
+    .legend-item {
+      display: inline-block;
+      margin-right: 20px;
+      margin-bottom: 10px;
+    }
+    .legend-box {
+      display: inline-block;
+      width: 30px;
+      height: 30px;
+      vertical-align: middle;
+      margin-right: 8px;
+      border: 1px solid #555;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 Diagonal OTG Detection Tests</h1>
+
+  <div class="legend">
+    <h3>Legend:</h3>
+    <div class="legend-item">
+      <span class="legend-box empty"></span> Empty Tile
+    </div>
+    <div class="legend-item">
+      <span class="legend-box wall"></span> Wall
+    </div>
+    <div class="legend-item">
+      <span class="legend-box otg"></span> Detected OTG
+    </div>
+    <div class="legend-item">
+      ? = Expected OTG location
+    </div>
+  </div>
+
+  <div id="test-results"></div>
+
+  <script>
+    const TERRAIN_TYPES = {
+      WALL: '#8B4513',
+      WATER: '#1E90FF',
+      GRASS: '#228B22'
+    };
+
+    // Mock constants
+    const CANVAS_HEIGHT = 5;
+    const CANVAS_WIDTH = 5;
+
+    function detectAllOTGs(tiles) {
+      const otgs = [];
+
+      const isBlocking = (row, col) => {
+        if (row < 0 || row >= tiles.length || col < 0 || col >= tiles[0].length) {
+          return false;
+        }
+        return tiles[row][col] === TERRAIN_TYPES.WALL || tiles[row][col] === TERRAIN_TYPES.WATER;
+      };
+
+      for (let row = 0; row < tiles.length; row++) {
+        for (let col = 0; col < tiles[0].length; col++) {
+          if (tiles[row][col] !== null) continue;
+
+          const N  = isBlocking(row - 1, col);
+          const S  = isBlocking(row + 1, col);
+          const E  = isBlocking(row, col + 1);
+          const W  = isBlocking(row, col - 1);
+          const NE = isBlocking(row - 1, col + 1);
+          const NW = isBlocking(row - 1, col - 1);
+          const SE = isBlocking(row + 1, col + 1);
+          const SW = isBlocking(row + 1, col - 1);
+
+          let isOTG = false;
+          let otgType = '';
+
+          // TYPE 1: Orthogonal Corridor
+          if (N && S) {
+            isOTG = true;
+            otgType = 'vertical-corridor';
+          }
+          else if (E && W) {
+            isOTG = true;
+            otgType = 'horizontal-corridor';
+          }
+          // TYPE 2: Diagonal OTG (FIXED VERSION)
+          else if ((NW && SE) || (NE && SW) || (N && SE) || (S && NW) || (E && SW) || (W && NE)) {
+            const isLCorner = (N && W) || (N && E) || (S && W) || (S && E);
+
+            if (!isLCorner) {
+              isOTG = true;
+              if (NW && SE) otgType = 'diagonal-nw-se';
+              else if (NE && SW) otgType = 'diagonal-ne-sw';
+              else if (N && SE) otgType = 'diagonal-n-se';
+              else if (S && NW) otgType = 'diagonal-s-nw';
+              else if (E && SW) otgType = 'diagonal-e-sw';
+              else if (W && NE) otgType = 'diagonal-w-ne';
+            }
+          }
+          // TYPE 3: Three-Sided Trap
+          else if ((N && E && W) || (N && E && S) || (N && W && S) || (E && W && S)) {
+            isOTG = true;
+            otgType = '3-sided-trap';
+          }
+
+          if (isOTG) {
+            otgs.push({ row, col, type: otgType, severity: 'critical' });
+          }
+        }
+      }
+
+      return otgs;
+    }
+
+    function createGrid(size, walls, expectedOTGs = []) {
+      const grid = Array(size).fill(null).map(() => Array(size).fill(null));
+      walls.forEach(([r, c]) => {
+        grid[r][c] = TERRAIN_TYPES.WALL;
+      });
+      return { grid, expectedOTGs };
+    }
+
+    function renderGrid(grid, otgs, expectedOTGs) {
+      const otgSet = new Set(otgs.map(o => `${o.row},${o.col}`));
+      const expectedSet = new Set(expectedOTGs.map(([r, c]) => `${r},${c}`));
+
+      let html = '<div class="grid">';
+      for (let r = 0; r < grid.length; r++) {
+        html += '<div class="row">';
+        for (let c = 0; c < grid[r].length; c++) {
+          const isWall = grid[r][c] === TERRAIN_TYPES.WALL;
+          const isOTG = otgSet.has(`${r},${c}`);
+          const isExpected = expectedSet.has(`${r},${c}`);
+
+          let cellClass = isWall ? 'wall' : 'empty';
+          if (isOTG) cellClass += ' otg';
+          if (isExpected) cellClass += ' expected-otg';
+
+          const content = isWall ? 'W' : (isOTG ? '❌' : '');
+          html += `<div class="cell ${cellClass}">${content}</div>`;
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      return html;
+    }
+
+    function runTest(name, description, gridData) {
+      const { grid, expectedOTGs } = gridData;
+      const detectedOTGs = detectAllOTGs(grid);
+
+      const detectedSet = new Set(detectedOTGs.map(o => `${o.row},${o.col}`));
+      const expectedSet = new Set(expectedOTGs.map(([r, c]) => `${r},${c}`));
+
+      const correctDetections = expectedOTGs.filter(([r, c]) => detectedSet.has(`${r},${c}`));
+      const missedDetections = expectedOTGs.filter(([r, c]) => !detectedSet.has(`${r},${c}`));
+      const falsePositives = detectedOTGs.filter(o => !expectedSet.has(`${o.row},${o.col}`));
+
+      const passed = missedDetections.length === 0 && falsePositives.length === 0;
+
+      let html = `<div class="test-case">`;
+      html += `<h3>${name}</h3>`;
+      html += `<p>${description}</p>`;
+      html += renderGrid(grid, detectedOTGs, expectedOTGs);
+
+      html += `<div class="result ${passed ? 'pass' : 'fail'}">`;
+      if (passed) {
+        html += `✅ PASSED - All OTGs correctly detected (${correctDetections.length}/${expectedOTGs.length})`;
+      } else {
+        html += `❌ FAILED`;
+        if (missedDetections.length > 0) {
+          html += `<br>Missed: ${missedDetections.map(([r,c]) => `(${r},${c})`).join(', ')}`;
+        }
+        if (falsePositives.length > 0) {
+          html += `<br>False positives: ${falsePositives.map(o => `(${o.row},${o.col}) [${o.type}]`).join(', ')}`;
+        }
+      }
+      html += `</div>`;
+
+      if (detectedOTGs.length > 0) {
+        html += `<div class="info">Detected OTGs: ${detectedOTGs.map(o => `(${o.row},${o.col}) [${o.type}]`).join(', ')}</div>`;
+      }
+
+      html += `</div>`;
+      return html;
+    }
+
+    // Test cases
+    const tests = [
+      {
+        name: "Test 1: Walls at (1,1) and (3,3) - Classic Diagonal",
+        description: "Two walls diagonally opposite should create OTG at (2,2)",
+        data: createGrid(5, [[1,1], [3,3]], [[2,2]])
+      },
+      {
+        name: "Test 2: Walls at (1,1) and (3,2) - Offset Diagonal",
+        description: "Offset diagonal walls should create OTGs at (2,1) and (2,2)",
+        data: createGrid(5, [[1,1], [3,2]], [[2,1], [2,2]])
+      },
+      {
+        name: "Test 3: L-Shaped Wall (No OTG Expected)",
+        description: "L-shaped wall configuration should NOT create false positive OTGs",
+        data: createGrid(5, [[0,0], [0,1], [0,2], [1,0], [2,0]], [])
+      },
+      {
+        name: "Test 4: Vertical Corridor (Baseline)",
+        description: "Classic vertical corridor should still be detected",
+        data: createGrid(5, [[1,1], [3,1]], [[2,1]])
+      },
+      {
+        name: "Test 5: Horizontal Corridor (Baseline)",
+        description: "Classic horizontal corridor should still be detected",
+        data: createGrid(5, [[2,1], [2,3]], [[2,2]])
+      },
+      {
+        name: "Test 6: NE-SW Diagonal",
+        description: "Walls at opposite NE-SW diagonal corners",
+        data: createGrid(5, [[1,3], [3,1]], [[2,2]])
+      },
+      {
+        name: "Test 7: Multiple L-Corners (No False Positives)",
+        description: "Multiple L-shaped corners should not trigger OTG detection",
+        data: createGrid(5, [[0,0], [0,1], [1,0], [0,3], [0,4], [1,4], [4,0], [3,0], [4,1]], [])
+      },
+      {
+        name: "Test 8: Mixed Diagonal Patterns",
+        description: "Testing N+SE pattern",
+        data: createGrid(5, [[0,2], [3,3]], [[1,2]])
+      },
+      {
+        name: "Test 9: E+SW Pattern",
+        description: "Wall to east and southwest diagonal",
+        data: createGrid(5, [[2,3], [4,1]], [[3,2]])
+      },
+      {
+        name: "Test 10: U-Shaped Opening (No OTG)",
+        description: "U-shaped wall configuration with opening at bottom",
+        data: createGrid(5, [[0,1], [0,2], [0,3], [1,1], [1,3], [2,1], [2,3]], [])
+      }
+    ];
+
+    // Run all tests
+    const resultsContainer = document.getElementById('test-results');
+    tests.forEach(test => {
+      resultsContainer.innerHTML += runTest(test.name, test.description, test.data);
+    });
+
+    // Summary
+    const allTests = tests.length;
+    const passedTests = tests.filter(test => {
+      const { grid, expectedOTGs } = test.data;
+      const detected = detectAllOTGs(grid);
+      const detectedSet = new Set(detected.map(o => `${o.row},${o.col}`));
+      const expectedSet = new Set(expectedOTGs.map(([r, c]) => `${r},${c}`));
+      const missed = expectedOTGs.filter(([r, c]) => !detectedSet.has(`${r},${c}`));
+      const falsePos = detected.filter(o => !expectedSet.has(`${o.row},${o.col}`));
+      return missed.length === 0 && falsePos.length === 0;
+    }).length;
+
+    resultsContainer.innerHTML += `
+      <div style="margin-top: 30px; padding: 20px; background: #2a2a2a; border-radius: 8px; font-size: 18px;">
+        <strong>Summary: ${passedTests}/${allTests} tests passed</strong>
+        ${passedTests === allTests ? ' 🎉' : ''}
+      </div>
+    `;
+  </script>
+</body>
+</html>
