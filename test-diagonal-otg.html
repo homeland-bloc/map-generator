@@ -46,6 +46,7 @@
     }
     .empty { background: #FFE4B3; color: #000; }
     .wall { background: #8B4513; color: #fff; }
+    .bush { background: #228B22; color: #fff; }
     .otg {
       background: #FF4444 !important;
       font-weight: bold;
@@ -104,6 +105,9 @@
       <span class="legend-box wall"></span> Wall
     </div>
     <div class="legend-item">
+      <span class="legend-box bush"></span> Bush
+    </div>
+    <div class="legend-item">
       <span class="legend-box otg"></span> Detected OTG
     </div>
     <div class="legend-item">
@@ -120,7 +124,6 @@
       GRASS: '#228B22'
     };
 
-    // Mock constants
     const CANVAS_HEIGHT = 5;
     const CANVAS_WIDTH = 5;
 
@@ -129,14 +132,16 @@
 
       const isBlocking = (row, col) => {
         if (row < 0 || row >= tiles.length || col < 0 || col >= tiles[0].length) {
-          return false;
+          return true; // Map edges act as blocking walls for OTG detection
         }
         return tiles[row][col] === TERRAIN_TYPES.WALL || tiles[row][col] === TERRAIN_TYPES.WATER;
       };
 
       for (let row = 0; row < tiles.length; row++) {
         for (let col = 0; col < tiles[0].length; col++) {
-          if (tiles[row][col] !== null) continue;
+          // Skip walls and water (only check walkable tiles: empty and bushes)
+          const tile = tiles[row][col];
+          if (tile === TERRAIN_TYPES.WALL || tile === TERRAIN_TYPES.WATER) continue;
 
           const N  = isBlocking(row - 1, col);
           const S  = isBlocking(row + 1, col);
@@ -194,10 +199,13 @@
       return otgs;
     }
 
-    function createGrid(size, walls, expectedOTGs = []) {
+    function createGrid(size, walls, expectedOTGs = [], bushes = []) {
       const grid = Array(size).fill(null).map(() => Array(size).fill(null));
       walls.forEach(([r, c]) => {
         grid[r][c] = TERRAIN_TYPES.WALL;
+      });
+      bushes.forEach(([r, c]) => {
+        grid[r][c] = TERRAIN_TYPES.GRASS;
       });
       return { grid, expectedOTGs };
     }
@@ -210,15 +218,21 @@
       for (let r = 0; r < grid.length; r++) {
         html += '<div class="row">';
         for (let c = 0; c < grid[r].length; c++) {
-          const isWall = grid[r][c] === TERRAIN_TYPES.WALL;
+          const tile = grid[r][c];
+          const isWall = tile === TERRAIN_TYPES.WALL;
+          const isBush = tile === TERRAIN_TYPES.GRASS;
           const isOTG = otgSet.has(`${r},${c}`);
           const isExpected = expectedSet.has(`${r},${c}`);
 
-          let cellClass = isWall ? 'wall' : 'empty';
+          let cellClass = isWall ? 'wall' : (isBush ? 'bush' : 'empty');
           if (isOTG) cellClass += ' otg';
           if (isExpected) cellClass += ' expected-otg';
 
-          const content = isWall ? 'W' : (isOTG ? '❌' : '');
+          let content = '';
+          if (isOTG) content = '❌';
+          else if (isWall) content = 'W';
+          else if (isBush) content = 'B';
+
           html += `<div class="cell ${cellClass}">${content}</div>`;
         }
         html += '</div>';
@@ -333,6 +347,26 @@
         name: "Test 10: U-Shaped Opening (No OTG)",
         description: "U-shaped wall configuration with opening at bottom",
         data: createGrid(5, [[0,1], [0,2], [0,3], [1,1], [1,3], [2,1], [2,3]], [])
+      },
+      {
+        name: "Test 11: Bush on OTG (Should Still Detect)",
+        description: "Bush tiles on OTG locations should still be marked as OTGs",
+        data: createGrid(5, [[1,1], [3,3]], [[2,2]], [[2,2]])
+      },
+      {
+        name: "Test 12: Map Edge OTG - Top Edge",
+        description: "Wall near top edge creates OTG between wall and edge",
+        data: createGrid(5, [[1,2]], [[0,2]])
+      },
+      {
+        name: "Test 13: Map Edge OTG - Left Edge",
+        description: "Wall near left edge creates OTG between wall and edge",
+        data: createGrid(5, [[2,1]], [[2,0]])
+      },
+      {
+        name: "Test 14: Map Edge OTG - Corner",
+        description: "Wall near corner creates OTG at corner tile",
+        data: createGrid(5, [[1,1]], [[0,0], [0,1], [1,0]])
       }
     ];
 
