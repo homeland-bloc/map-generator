@@ -416,7 +416,15 @@ const MapGenerator = () => {
       pool_4x2: { pattern: [[1,1,1,1],[1,1,1,1]], weight: 1 },
       river_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
       river_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 0.8 },
-      L_water: { pattern: [[1,1,1],[1,1,0],[1,1,0]], weight: 0.5 }
+      L_water: { pattern: [[1,1,1],[1,1,0],[1,1,0]], weight: 0.5 },
+
+      // Showdown-specific long water features (boosted in Showdown maps)
+      showdown_river_2x8: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 0.1 },
+      showdown_river_3x6: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 0.2 },
+      showdown_river_2x10: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 0.1 },
+      showdown_pool_4x4: { pattern: [[1,1,1,1],[1,1,1,1],[1,1,1,1],[1,1,1,1]], weight: 0.2 },
+      showdown_pool_5x3: { pattern: [[1,1,1,1,1],[1,1,1,1,1],[1,1,1,1,1]], weight: 0.2 },
+      showdown_L_water_large: { pattern: [[1,1,1,1],[1,1,1,1],[1,1,0,0],[1,1,0,0]], weight: 0.15 }
     };
 
     console.log(`  Wall templates: ${Object.keys(WALL_TEMPLATES).length}`);
@@ -861,22 +869,22 @@ const MapGenerator = () => {
 
         // RELAXED size limits - scale up for Showdown maps
         let maxTotalSize, maxLength, maxThickness, minThickness;
-        const sizeMultiplier = isShowdown ? 2.0 : 1.3; // More lenient multipliers
+        const sizeMultiplier = isShowdown ? 2.5 : 1.3; // More lenient for Showdown
 
         if (terrainType === TERRAIN_TYPES.WALL) {
-          maxTotalSize = Math.floor(30 * sizeMultiplier); // Increased from 20
-          maxLength = Math.floor(12 * sizeMultiplier); // Increased from 8
-          maxThickness = Math.floor(4 * sizeMultiplier); // Increased from 3
+          maxTotalSize = Math.floor(30 * sizeMultiplier); // Showdown: 75, Standard: 39
+          maxLength = Math.floor(16 * sizeMultiplier); // Showdown: 40, Standard: 20 (longer structures)
+          maxThickness = Math.floor(4 * sizeMultiplier); // Showdown: 10, Standard: 5
           minThickness = 1;
         } else if (terrainType === TERRAIN_TYPES.GRASS) {
-          maxTotalSize = Math.floor(35 * sizeMultiplier); // Increased from 25
-          maxLength = Math.floor(14 * sizeMultiplier); // Increased from 10
-          maxThickness = Math.floor(5 * sizeMultiplier); // Increased from 4
+          maxTotalSize = Math.floor(35 * sizeMultiplier); // Showdown: 87, Standard: 45
+          maxLength = Math.floor(18 * sizeMultiplier); // Showdown: 45, Standard: 23
+          maxThickness = Math.floor(5 * sizeMultiplier); // Showdown: 12, Standard: 6
           minThickness = 1;
         } else { // WATER
-          maxTotalSize = Math.floor(35 * sizeMultiplier); // Increased from 25
-          maxLength = Math.floor(16 * sizeMultiplier); // Increased from 12
-          maxThickness = Math.floor(6 * sizeMultiplier); // Increased from 5
+          maxTotalSize = Math.floor(40 * sizeMultiplier); // Showdown: 100, Standard: 52
+          maxLength = Math.floor(20 * sizeMultiplier); // Showdown: 50, Standard: 26 (very long water)
+          maxThickness = Math.floor(6 * sizeMultiplier); // Showdown: 15, Standard: 7
           minThickness = 2;  // Min 2 tiles thick - no single-tile protrusions
         }
 
@@ -2235,9 +2243,9 @@ const MapGenerator = () => {
       // Water placement: 1000 attempts max (fail gracefully), others: 5000
       const maxAttempts = (type === TERRAIN_TYPES.WATER) ? 1000 : 5000;
 
-      // Special handling for water: limit to 2 structures max, mid strip only
+      // Special handling for water: limit structures based on map type
       let waterStructureCount = 0;
-      const maxWaterStructures = 2;
+      const maxWaterStructures = isShowdown ? 4 : 2; // More water structures for Showdown
 
       while (currentTileCount < targetCount && attemptCount < maxAttempts) {
         attemptCount++;
@@ -2827,6 +2835,49 @@ const MapGenerator = () => {
     }
 
     console.log(`Bush protrusion violations: ${bushProtrusionViolations} (should be 0)`);
+
+    // CRITICAL VALIDATION: Water-wall attachment ratio
+    // Water allows shooting through it, so too many wall attachments block angles
+    // Rule: If touching wall tiles > half of water tiles, delete the water structure
+    let waterStructuresDeleted = 0;
+    const waterStructuresForCheck = identifyAllStructures(placedTiles, TERRAIN_TYPES.WATER);
+
+    for (const waterStruct of waterStructuresForCheck) {
+      const waterTileCount = waterStruct.length;
+
+      // Count how many wall tiles are touching this water structure
+      const touchingWallTiles = new Set();
+
+      for (const [wr, wc] of waterStruct) {
+        // Check 4 orthogonal neighbors for walls
+        const neighbors = [
+          [wr - 1, wc], [wr + 1, wc],
+          [wr, wc - 1], [wr, wc + 1]
+        ];
+
+        for (const [nr, nc] of neighbors) {
+          if (isValid(nr, nc) && placedTiles[nr][nc] === TERRAIN_TYPES.WALL) {
+            touchingWallTiles.add(`${nr},${nc}`);
+          }
+        }
+      }
+
+      const touchingWallCount = touchingWallTiles.size;
+
+      // Check if wall attachment ratio is too high
+      if (touchingWallCount > waterTileCount / 2) {
+        console.log(`  WARNING: Water structure (${waterTileCount} tiles) has ${touchingWallCount} touching wall tiles (>${waterTileCount/2}). Deleting water to preserve shooting angles.`);
+
+        // Delete the entire water structure
+        for (const [wr, wc] of waterStruct) {
+          placedTiles[wr][wc] = null;
+        }
+
+        waterStructuresDeleted++;
+      }
+    }
+
+    console.log(`Water structures deleted due to poor wall attachment ratio: ${waterStructuresDeleted}`);
 
     // Bush size statistics after merging
     const bushStructuresAfterMerge = identifyAllStructures(placedTiles, TERRAIN_TYPES.GRASS);
