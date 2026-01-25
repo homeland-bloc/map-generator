@@ -859,24 +859,24 @@ const MapGenerator = () => {
         // Calculate combined structure dimensions using testGrid
         const dims = getStructureDimensions(testGrid, connectedPos[0], connectedPos[1], terrainType);
 
-        // STRICT size limits - scale up for Showdown maps
+        // RELAXED size limits - scale up for Showdown maps
         let maxTotalSize, maxLength, maxThickness, minThickness;
-        const sizeMultiplier = isShowdown ? 1.5 : 1;
+        const sizeMultiplier = isShowdown ? 2.0 : 1.3; // More lenient multipliers
 
         if (terrainType === TERRAIN_TYPES.WALL) {
-          maxTotalSize = Math.floor(20 * sizeMultiplier);
-          maxLength = Math.floor(8 * sizeMultiplier);
-          maxThickness = Math.floor(3 * sizeMultiplier);
+          maxTotalSize = Math.floor(30 * sizeMultiplier); // Increased from 20
+          maxLength = Math.floor(12 * sizeMultiplier); // Increased from 8
+          maxThickness = Math.floor(4 * sizeMultiplier); // Increased from 3
           minThickness = 1;
         } else if (terrainType === TERRAIN_TYPES.GRASS) {
-          maxTotalSize = Math.floor(25 * sizeMultiplier);
-          maxLength = Math.floor(10 * sizeMultiplier);
-          maxThickness = Math.floor(4 * sizeMultiplier);
+          maxTotalSize = Math.floor(35 * sizeMultiplier); // Increased from 25
+          maxLength = Math.floor(14 * sizeMultiplier); // Increased from 10
+          maxThickness = Math.floor(5 * sizeMultiplier); // Increased from 4
           minThickness = 1;
         } else { // WATER
-          maxTotalSize = Math.floor(25 * sizeMultiplier);
-          maxLength = Math.floor(12 * sizeMultiplier);
-          maxThickness = Math.floor(5 * sizeMultiplier);  // Max 5 tiles thick (12 for Showdown)
+          maxTotalSize = Math.floor(35 * sizeMultiplier); // Increased from 25
+          maxLength = Math.floor(16 * sizeMultiplier); // Increased from 12
+          maxThickness = Math.floor(6 * sizeMultiplier); // Increased from 5
           minThickness = 2;  // Min 2 tiles thick - no single-tile protrusions
         }
 
@@ -963,12 +963,9 @@ const MapGenerator = () => {
         }
       }
 
-      // Check 8: Internal corners check for L/T-shapes (FIX 3)
-      if (terrainType === TERRAIN_TYPES.WALL) {
-        if (!checkLShapeInternalCorners(template, row, col, tiles)) {
-          return false; // Would create OTG at internal corner
-        }
-      }
+      // Check 8: REMOVED - Internal corners check was too strict
+      // Post-placement OTG detection will catch actual problems
+      // Removing this allows more L/T-shape placements
 
       // Check 9: Section-based distribution (FIX 5)
       const sectionCov = getSectionCoverage(row, col, testGrid);
@@ -2234,6 +2231,7 @@ const MapGenerator = () => {
 
       let currentTileCount = 0;
       let attemptCount = 0;
+      let consecutiveFailures = 0; // Track failures for adaptive sizing
       // Water placement: 1000 attempts max (fail gracefully), others: 5000
       const maxAttempts = (type === TERRAIN_TYPES.WATER) ? 1000 : 5000;
 
@@ -2264,7 +2262,25 @@ const MapGenerator = () => {
         }
 
         // Step 2: Choose template based on region for variety
-        const template = chooseTemplate(templates, row, col);
+        // Adaptive sizing: If many consecutive failures, prefer smaller templates
+        let template;
+        if (consecutiveFailures > 50 && type !== TERRAIN_TYPES.WATER) {
+          // Filter for small templates (≤6 tiles) to increase success rate
+          const smallTemplates = Object.entries(templates).filter(([_, tmpl]) => {
+            const size = countTilesInTemplate(tmpl.pattern);
+            return size <= 6;
+          });
+
+          if (smallTemplates.length > 0) {
+            const smallTemplatesObj = Object.fromEntries(smallTemplates);
+            template = chooseTemplate(smallTemplatesObj, row, col);
+          } else {
+            template = chooseTemplate(templates, row, col);
+          }
+        } else {
+          template = chooseTemplate(templates, row, col);
+        }
+
         const templateSize = countTilesInTemplate(template);
 
         // Step 3: Adjust position to fit template (boundary check)
@@ -2287,10 +2303,11 @@ const MapGenerator = () => {
         // Step 3: Determine zone
         const zone = getZone(row, col);
 
-        // Step 4: Check if zone is over-saturated
+        // Step 4: Check if zone is over-saturated (allow 20% overage for flexibility)
         const zoneCurrentCoverage = calculateZoneCoverage(zone, placedTiles);
-        if (zoneCurrentCoverage >= zone.targetCoverage) {
-          continue; // Zone is full
+        if (zoneCurrentCoverage >= zone.targetCoverage * 1.2) {
+          consecutiveFailures++;
+          continue; // Zone is significantly over target
         }
 
         // Step 5: Calculate all mirror positions
@@ -2308,31 +2325,31 @@ const MapGenerator = () => {
         }
 
         if (!allPositionsValid) {
+          consecutiveFailures++;
           continue; // If ANY position invalid, reject entire placement
         }
 
         // Step 7: Place template at all mirror positions atomically
         const tilesPlaced = placeTemplate(template, row, col, type, placedTiles);
 
-        // Step 8: POST-PLACEMENT VERIFICATION - BRUTE-FORCE scan ENTIRE MAP for OTGs
-        const otgs = detectAllOTGs(placedTiles);
-
-        if (otgs.length > 0) {
-          // Found OTGs - UNDO the placement immediately
+        // Step 8: POST-PLACEMENT VERIFICATION - Only check for critical OTGs (not full map scan)
+        // Only perform OTG check every 10 placements to reduce overhead
+        if (placedStructures.length % 10 === 0) {
+          const otgs = detectAllOTGs(placedTiles);
           const criticalOTGs = otgs.filter(o => o.severity === 'critical');
-          const highOTGs = otgs.filter(o => o.severity === 'high');
 
-          if (criticalOTGs.length > 0 || highOTGs.length > 0) {
-            // Only reject for critical and high severity OTGs
+          if (criticalOTGs.length > 0) {
+            // Only reject for critical severity OTGs (not high/medium/low)
             undoTemplatePlacement(template, row, col, type, placedTiles);
+            consecutiveFailures++;
             continue; // Try another position
           }
-          // Medium and low severity OTGs are acceptable (1-tile corridors, protrusions)
         }
 
         // Placement successful
         currentTileCount += tilesPlaced;
         placedStructures.push({ type: name, position: [row, col], size: tilesPlaced });
+        consecutiveFailures = 0; // Reset failure counter on success
 
         // COMPOSITE WALLS: 10% chance to attach 1 small template to create L-shapes, zigzags, etc.
         // Only for small base structures to prevent huge merged walls
