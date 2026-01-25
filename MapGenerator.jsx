@@ -814,7 +814,15 @@ const MapGenerator = () => {
         return false;
       }
 
-      // Check 2: Does template overlap existing structure?
+      // Check 2: Reject 1x1 water templates immediately
+      if (terrainType === TERRAIN_TYPES.WATER) {
+        const templateSize = template.flat().filter(t => t === 1).length;
+        if (templateSize === 1) {
+          return false; // 1x1 water not allowed
+        }
+      }
+
+      // Check 3: Does template overlap existing structure?
       for (let i = 0; i < templateHeight; i++) {
         for (let j = 0; j < templateWidth; j++) {
           if (template[i][j] === 1 && tiles[row + i][col + j] !== null) {
@@ -891,6 +899,39 @@ const MapGenerator = () => {
         if (dims.totalSize > maxTotalSize || dims.maxLength > maxLength ||
             dims.maxThickness > maxThickness || dims.maxThickness < minThickness) {
           return false; // Would exceed size limits or be too thin
+        }
+
+        // WATER-WALL ATTACHMENT VALIDATION (during placement, not post-processing)
+        // Check if water structure would have good wall attachment ratio
+        if (terrainType === TERRAIN_TYPES.WATER) {
+          const waterTiles = [];
+          for (let i = 0; i < templateHeight; i++) {
+            for (let j = 0; j < templateWidth; j++) {
+              if (template[i][j] === 1) {
+                waterTiles.push([row + i, col + j]);
+              }
+            }
+          }
+
+          // Count wall tiles touching this water in testGrid
+          const touchingWalls = new Set();
+          for (const [wr, wc] of waterTiles) {
+            const neighbors = [[wr-1,wc], [wr+1,wc], [wr,wc-1], [wr,wc+1]];
+            for (const [nr, nc] of neighbors) {
+              if (isValid(nr, nc) && testGrid[nr][nc] === TERRAIN_TYPES.WALL) {
+                touchingWalls.add(`${nr},${nc}`);
+              }
+            }
+          }
+
+          const waterCount = waterTiles.length;
+          const wallCount = touchingWalls.size;
+
+          // Reject if too many walls touching (>50% of water tile count)
+          // This prevents water with blocked shooting angles
+          if (wallCount > waterCount / 2) {
+            return false; // Too many walls blocking water shooting angles
+          }
         }
       }
 
@@ -2791,48 +2832,8 @@ const MapGenerator = () => {
 
     console.log(`Bush protrusion violations: ${bushProtrusionViolations} (should be 0)`);
 
-    // CRITICAL VALIDATION: Water-wall attachment ratio
-    // Water allows shooting through it, so too many wall attachments block angles
-    // Rule: If touching wall tiles > half of water tiles, delete the water structure
-    let waterStructuresDeleted = 0;
-    const waterStructuresForCheck = identifyAllStructures(placedTiles, TERRAIN_TYPES.WATER);
-
-    for (const waterStruct of waterStructuresForCheck) {
-      const waterTileCount = waterStruct.length;
-
-      // Count how many wall tiles are touching this water structure
-      const touchingWallTiles = new Set();
-
-      for (const [wr, wc] of waterStruct) {
-        // Check 4 orthogonal neighbors for walls
-        const neighbors = [
-          [wr - 1, wc], [wr + 1, wc],
-          [wr, wc - 1], [wr, wc + 1]
-        ];
-
-        for (const [nr, nc] of neighbors) {
-          if (isValid(nr, nc) && placedTiles[nr][nc] === TERRAIN_TYPES.WALL) {
-            touchingWallTiles.add(`${nr},${nc}`);
-          }
-        }
-      }
-
-      const touchingWallCount = touchingWallTiles.size;
-
-      // Check if wall attachment ratio is too high
-      if (touchingWallCount > waterTileCount / 2) {
-        console.log(`  WARNING: Water structure (${waterTileCount} tiles) has ${touchingWallCount} touching wall tiles (>${waterTileCount/2}). Deleting water to preserve shooting angles.`);
-
-        // Delete the entire water structure
-        for (const [wr, wc] of waterStruct) {
-          placedTiles[wr][wc] = null;
-        }
-
-        waterStructuresDeleted++;
-      }
-    }
-
-    console.log(`Water structures deleted due to poor wall attachment ratio: ${waterStructuresDeleted}`);
+    // NOTE: Water-wall attachment ratio validation moved to placement time
+    // Water structures are now validated before placement, not deleted after
 
     // Bush size statistics after merging
     const bushStructuresAfterMerge = identifyAllStructures(placedTiles, TERRAIN_TYPES.GRASS);
