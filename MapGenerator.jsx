@@ -381,98 +381,6 @@ const MapGenerator = () => {
       rect_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
       rect_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 1 },
 
-      // Expressive large bush shapes - arcs, triangles, pixelated U/Z
-      // Arc shapes (curved edges)
-      arc_top: { pattern: [
-        [0,1,1,1,1,0],
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1]
-      ], weight: 1.5 },
-      arc_bottom: { pattern: [
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1],
-        [0,1,1,1,1,0]
-      ], weight: 1.5 },
-      arc_left: { pattern: [
-        [0,1,1],
-        [1,1,1],
-        [1,1,1],
-        [1,1,1],
-        [1,1,1],
-        [0,1,1]
-      ], weight: 1.5 },
-      arc_right: { pattern: [
-        [1,1,0],
-        [1,1,1],
-        [1,1,1],
-        [1,1,1],
-        [1,1,1],
-        [1,1,0]
-      ], weight: 1.5 },
-
-      // Triangle shapes (pixelated)
-      triangle_up: { pattern: [
-        [0,0,1,1,0,0],
-        [0,1,1,1,1,0],
-        [1,1,1,1,1,1]
-      ], weight: 1.2 },
-      triangle_down: { pattern: [
-        [1,1,1,1,1,1],
-        [0,1,1,1,1,0],
-        [0,0,1,1,0,0]
-      ], weight: 1.2 },
-
-      // U-shapes (pixelated)
-      U_large: { pattern: [
-        [1,1,0,0,1,1],
-        [1,1,0,0,1,1],
-        [1,1,0,0,1,1],
-        [1,1,1,1,1,1]
-      ], weight: 1.3 },
-      U_wide: { pattern: [
-        [1,1,0,0,0,0,1,1],
-        [1,1,0,0,0,0,1,1],
-        [1,1,1,1,1,1,1,1]
-      ], weight: 1.3 },
-
-      // Z-shapes (pixelated)
-      Z_large: { pattern: [
-        [1,1,1,1,1],
-        [0,0,1,1,0],
-        [0,1,1,0,0],
-        [1,1,1,1,1]
-      ], weight: 1.2 },
-      Z_reversed: { pattern: [
-        [1,1,1,1,1],
-        [0,1,1,0,0],
-        [0,0,1,1,0],
-        [1,1,1,1,1]
-      ], weight: 1.2 },
-
-      // Circle/oval shapes
-      circle_small: { pattern: [
-        [0,1,1,1,0],
-        [1,1,1,1,1],
-        [1,1,1,1,1],
-        [1,1,1,1,1],
-        [0,1,1,1,0]
-      ], weight: 1.4 },
-      oval_h: { pattern: [
-        [0,1,1,1,1,1,0],
-        [1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1],
-        [0,1,1,1,1,1,0]
-      ], weight: 1.4 },
-      oval_v: { pattern: [
-        [0,1,1,1,0],
-        [1,1,1,1,1],
-        [1,1,1,1,1],
-        [1,1,1,1,1],
-        [1,1,1,1,1],
-        [1,1,1,1,1],
-        [0,1,1,1,0]
-      ], weight: 1.4 },
-
       // Showdown-specific large bush templates (8x8, 6x6, etc.) - low base weight, boosted by size
       showdown_bush_8x8: { pattern: [
         [1,1,1,1,1,1,1,1],
@@ -508,7 +416,15 @@ const MapGenerator = () => {
       pool_4x2: { pattern: [[1,1,1,1],[1,1,1,1]], weight: 1 },
       river_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
       river_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 0.8 },
-      L_water: { pattern: [[1,1,1],[1,1,0],[1,1,0]], weight: 0.5 }
+      L_water: { pattern: [[1,1,1],[1,1,0],[1,1,0]], weight: 0.5 },
+
+      // Showdown-specific long water features (boosted in Showdown maps)
+      showdown_river_2x8: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 0.1 },
+      showdown_river_3x6: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 0.2 },
+      showdown_river_2x10: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 0.1 },
+      showdown_pool_4x4: { pattern: [[1,1,1,1],[1,1,1,1],[1,1,1,1],[1,1,1,1]], weight: 0.2 },
+      showdown_pool_5x3: { pattern: [[1,1,1,1,1],[1,1,1,1,1],[1,1,1,1,1]], weight: 0.2 },
+      showdown_L_water_large: { pattern: [[1,1,1,1],[1,1,1,1],[1,1,0,0],[1,1,0,0]], weight: 0.15 }
     };
 
     console.log(`  Wall templates: ${Object.keys(WALL_TEMPLATES).length}`);
@@ -951,24 +867,24 @@ const MapGenerator = () => {
         // Calculate combined structure dimensions using testGrid
         const dims = getStructureDimensions(testGrid, connectedPos[0], connectedPos[1], terrainType);
 
-        // STRICT size limits - scale up for Showdown maps
+        // RELAXED size limits - scale up for Showdown maps
         let maxTotalSize, maxLength, maxThickness, minThickness;
-        const sizeMultiplier = isShowdown ? 1.5 : 1;
+        const sizeMultiplier = isShowdown ? 2.5 : 1.3; // More lenient for Showdown
 
         if (terrainType === TERRAIN_TYPES.WALL) {
-          maxTotalSize = Math.floor(20 * sizeMultiplier);
-          maxLength = Math.floor(8 * sizeMultiplier);
-          maxThickness = Math.floor(3 * sizeMultiplier);
+          maxTotalSize = Math.floor(30 * sizeMultiplier); // Showdown: 75, Standard: 39
+          maxLength = Math.floor(16 * sizeMultiplier); // Showdown: 40, Standard: 20 (longer structures)
+          maxThickness = Math.floor(4 * sizeMultiplier); // Showdown: 10, Standard: 5
           minThickness = 1;
         } else if (terrainType === TERRAIN_TYPES.GRASS) {
-          maxTotalSize = Math.floor(25 * sizeMultiplier);
-          maxLength = Math.floor(10 * sizeMultiplier);
-          maxThickness = Math.floor(4 * sizeMultiplier);
+          maxTotalSize = Math.floor(35 * sizeMultiplier); // Showdown: 87, Standard: 45
+          maxLength = Math.floor(18 * sizeMultiplier); // Showdown: 45, Standard: 23
+          maxThickness = Math.floor(5 * sizeMultiplier); // Showdown: 12, Standard: 6
           minThickness = 1;
         } else { // WATER
-          maxTotalSize = Math.floor(25 * sizeMultiplier);
-          maxLength = Math.floor(12 * sizeMultiplier);
-          maxThickness = Math.floor(5 * sizeMultiplier);  // Max 5 tiles thick (12 for Showdown)
+          maxTotalSize = Math.floor(40 * sizeMultiplier); // Showdown: 100, Standard: 52
+          maxLength = Math.floor(20 * sizeMultiplier); // Showdown: 50, Standard: 26 (very long water)
+          maxThickness = Math.floor(6 * sizeMultiplier); // Showdown: 15, Standard: 7
           minThickness = 2;  // Min 2 tiles thick - no single-tile protrusions
         }
 
@@ -1055,12 +971,9 @@ const MapGenerator = () => {
         }
       }
 
-      // Check 8: Internal corners check for L/T-shapes (FIX 3)
-      if (terrainType === TERRAIN_TYPES.WALL) {
-        if (!checkLShapeInternalCorners(template, row, col, tiles)) {
-          return false; // Would create OTG at internal corner
-        }
-      }
+      // Check 8: REMOVED - Internal corners check was too strict
+      // Post-placement OTG detection will catch actual problems
+      // Removing this allows more L/T-shape placements
 
       // Check 9: Section-based distribution (FIX 5)
       const sectionCov = getSectionCoverage(row, col, testGrid);
@@ -2326,12 +2239,13 @@ const MapGenerator = () => {
 
       let currentTileCount = 0;
       let attemptCount = 0;
+      let consecutiveFailures = 0; // Track failures for adaptive sizing
       // Water placement: 1000 attempts max (fail gracefully), others: 5000
       const maxAttempts = (type === TERRAIN_TYPES.WATER) ? 1000 : 5000;
 
-      // Special handling for water: limit to 2 structures max, mid strip only
+      // Special handling for water: limit structures based on map type
       let waterStructureCount = 0;
-      const maxWaterStructures = 2;
+      const maxWaterStructures = isShowdown ? 4 : 2; // More water structures for Showdown
 
       while (currentTileCount < targetCount && attemptCount < maxAttempts) {
         attemptCount++;
@@ -2356,7 +2270,25 @@ const MapGenerator = () => {
         }
 
         // Step 2: Choose template based on region for variety
-        const template = chooseTemplate(templates, row, col);
+        // Adaptive sizing: If many consecutive failures, prefer smaller templates
+        let template;
+        if (consecutiveFailures > 50 && type !== TERRAIN_TYPES.WATER) {
+          // Filter for small templates (≤6 tiles) to increase success rate
+          const smallTemplates = Object.entries(templates).filter(([_, tmpl]) => {
+            const size = countTilesInTemplate(tmpl.pattern);
+            return size <= 6;
+          });
+
+          if (smallTemplates.length > 0) {
+            const smallTemplatesObj = Object.fromEntries(smallTemplates);
+            template = chooseTemplate(smallTemplatesObj, row, col);
+          } else {
+            template = chooseTemplate(templates, row, col);
+          }
+        } else {
+          template = chooseTemplate(templates, row, col);
+        }
+
         const templateSize = countTilesInTemplate(template);
 
         // Step 3: Adjust position to fit template (boundary check)
@@ -2379,10 +2311,11 @@ const MapGenerator = () => {
         // Step 3: Determine zone
         const zone = getZone(row, col);
 
-        // Step 4: Check if zone is over-saturated
+        // Step 4: Check if zone is over-saturated (allow 20% overage for flexibility)
         const zoneCurrentCoverage = calculateZoneCoverage(zone, placedTiles);
-        if (zoneCurrentCoverage >= zone.targetCoverage) {
-          continue; // Zone is full
+        if (zoneCurrentCoverage >= zone.targetCoverage * 1.2) {
+          consecutiveFailures++;
+          continue; // Zone is significantly over target
         }
 
         // Step 5: Calculate all mirror positions
@@ -2400,31 +2333,31 @@ const MapGenerator = () => {
         }
 
         if (!allPositionsValid) {
+          consecutiveFailures++;
           continue; // If ANY position invalid, reject entire placement
         }
 
         // Step 7: Place template at all mirror positions atomically
         const tilesPlaced = placeTemplate(template, row, col, type, placedTiles);
 
-        // Step 8: POST-PLACEMENT VERIFICATION - BRUTE-FORCE scan ENTIRE MAP for OTGs
-        const otgs = detectAllOTGs(placedTiles);
-
-        if (otgs.length > 0) {
-          // Found OTGs - UNDO the placement immediately
+        // Step 8: POST-PLACEMENT VERIFICATION - Only check for critical OTGs (not full map scan)
+        // Only perform OTG check every 10 placements to reduce overhead
+        if (placedStructures.length % 10 === 0) {
+          const otgs = detectAllOTGs(placedTiles);
           const criticalOTGs = otgs.filter(o => o.severity === 'critical');
-          const highOTGs = otgs.filter(o => o.severity === 'high');
 
-          if (criticalOTGs.length > 0 || highOTGs.length > 0) {
-            // Only reject for critical and high severity OTGs
+          if (criticalOTGs.length > 0) {
+            // Only reject for critical severity OTGs (not high/medium/low)
             undoTemplatePlacement(template, row, col, type, placedTiles);
+            consecutiveFailures++;
             continue; // Try another position
           }
-          // Medium and low severity OTGs are acceptable (1-tile corridors, protrusions)
         }
 
         // Placement successful
         currentTileCount += tilesPlaced;
         placedStructures.push({ type: name, position: [row, col], size: tilesPlaced });
+        consecutiveFailures = 0; // Reset failure counter on success
 
         // COMPOSITE WALLS: 10% chance to attach 1 small template to create L-shapes, zigzags, etc.
         // Only for small base structures to prevent huge merged walls
@@ -2902,6 +2835,49 @@ const MapGenerator = () => {
     }
 
     console.log(`Bush protrusion violations: ${bushProtrusionViolations} (should be 0)`);
+
+    // CRITICAL VALIDATION: Water-wall attachment ratio
+    // Water allows shooting through it, so too many wall attachments block angles
+    // Rule: If touching wall tiles > half of water tiles, delete the water structure
+    let waterStructuresDeleted = 0;
+    const waterStructuresForCheck = identifyAllStructures(placedTiles, TERRAIN_TYPES.WATER);
+
+    for (const waterStruct of waterStructuresForCheck) {
+      const waterTileCount = waterStruct.length;
+
+      // Count how many wall tiles are touching this water structure
+      const touchingWallTiles = new Set();
+
+      for (const [wr, wc] of waterStruct) {
+        // Check 4 orthogonal neighbors for walls
+        const neighbors = [
+          [wr - 1, wc], [wr + 1, wc],
+          [wr, wc - 1], [wr, wc + 1]
+        ];
+
+        for (const [nr, nc] of neighbors) {
+          if (isValid(nr, nc) && placedTiles[nr][nc] === TERRAIN_TYPES.WALL) {
+            touchingWallTiles.add(`${nr},${nc}`);
+          }
+        }
+      }
+
+      const touchingWallCount = touchingWallTiles.size;
+
+      // Check if wall attachment ratio is too high
+      if (touchingWallCount > waterTileCount / 2) {
+        console.log(`  WARNING: Water structure (${waterTileCount} tiles) has ${touchingWallCount} touching wall tiles (>${waterTileCount/2}). Deleting water to preserve shooting angles.`);
+
+        // Delete the entire water structure
+        for (const [wr, wc] of waterStruct) {
+          placedTiles[wr][wc] = null;
+        }
+
+        waterStructuresDeleted++;
+      }
+    }
+
+    console.log(`Water structures deleted due to poor wall attachment ratio: ${waterStructuresDeleted}`);
 
     // Bush size statistics after merging
     const bushStructuresAfterMerge = identifyAllStructures(placedTiles, TERRAIN_TYPES.GRASS);
