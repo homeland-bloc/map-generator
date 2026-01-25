@@ -894,44 +894,9 @@ const MapGenerator = () => {
         }
       }
 
-      // Check 7: Section balance
-      // Count how many tiles would go in mid vs backside
-      let midTiles = 0, backsideTiles = 0;
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] === 1) {
-            if (isInMidStrip(row + i)) midTiles++;
-            else backsideTiles++;
-          }
-        }
-      }
-
-      // Calculate current coverage
-      let currentMidFilled = 0, currentMidTotal = 0;
-      let currentBacksideFilled = 0, currentBacksideTotal = 0;
-
-      for (let r = 0; r < CANVAS_HEIGHT; r++) {
-        for (let c = 0; c < CANVAS_WIDTH; c++) {
-          if (isInMidStrip(r)) {
-            currentMidTotal++;
-            if (tiles[r][c] !== null) currentMidFilled++;
-          } else {
-            currentBacksideTotal++;
-            if (tiles[r][c] !== null) currentBacksideFilled++;
-          }
-        }
-      }
-
-      const currentMidCoverage = currentMidFilled / currentMidTotal;
-      const currentBacksideCoverage = currentBacksideFilled / currentBacksideTotal;
-
-      const newMidCoverage = (currentMidFilled + midTiles) / currentMidTotal;
-      const newBacksideCoverage = (currentBacksideFilled + backsideTiles) / currentBacksideTotal;
-
-      // Don't allow any section to exceed 70% coverage (increased from 50% to allow better map density)
-      if (newMidCoverage > 0.70 || newBacksideCoverage > 0.70) {
-        return false;
-      }
+      // Check 7: REMOVED - Section balance check was blocking too many placements
+      // Arbitrary coverage limits prevent maps from filling naturally
+      // Let maps achieve their target density without artificial restrictions
 
       // Check 7b: Showdown center protection (2x2 mid)
       // If walls or water are placed on the very center 2x2, keep them very small and unattached
@@ -975,11 +940,8 @@ const MapGenerator = () => {
       // Post-placement OTG detection will catch actual problems
       // Removing this allows more L/T-shape placements
 
-      // Check 9: Section-based distribution (FIX 5)
-      const sectionCov = getSectionCoverage(row, col, testGrid);
-      if (sectionCov > 0.80) {
-        return false; // Section too dense (increased from 60% to allow better variety)
-      }
+      // Check 9: REMOVED - Section coverage check was blocking too many placements
+      // Let structures distribute naturally without grid-based density limits
 
       return true; // Placement is valid!
     };
@@ -2311,9 +2273,12 @@ const MapGenerator = () => {
         // Step 3: Determine zone
         const zone = getZone(row, col);
 
-        // Step 4: Check if zone is over-saturated (allow 20% overage for flexibility)
+        // Step 4: Check if zone is over-saturated (very lenient limits)
+        // For Showdown, allow zones to fill naturally without strict limits
+        // For standard maps, allow significant overage
         const zoneCurrentCoverage = calculateZoneCoverage(zone, placedTiles);
-        if (zoneCurrentCoverage >= zone.targetCoverage * 1.2) {
+        const maxCoverageMultiplier = isShowdown ? 3.0 : 2.0; // Much more lenient
+        if (zoneCurrentCoverage >= zone.targetCoverage * maxCoverageMultiplier) {
           consecutiveFailures++;
           continue; // Zone is significantly over target
         }
@@ -2340,19 +2305,9 @@ const MapGenerator = () => {
         // Step 7: Place template at all mirror positions atomically
         const tilesPlaced = placeTemplate(template, row, col, type, placedTiles);
 
-        // Step 8: POST-PLACEMENT VERIFICATION - Only check for critical OTGs (not full map scan)
-        // Only perform OTG check every 10 placements to reduce overhead
-        if (placedStructures.length % 10 === 0) {
-          const otgs = detectAllOTGs(placedTiles);
-          const criticalOTGs = otgs.filter(o => o.severity === 'critical');
-
-          if (criticalOTGs.length > 0) {
-            // Only reject for critical severity OTGs (not high/medium/low)
-            undoTemplatePlacement(template, row, col, type, placedTiles);
-            consecutiveFailures++;
-            continue; // Try another position
-          }
-        }
+        // Step 8: OTG checking moved to post-processing for performance
+        // During placement, focus on basic validation only (bounds, overlap, size)
+        // OTG detection and fixing happens after all placements are complete
 
         // Placement successful
         currentTileCount += tilesPlaced;
