@@ -766,34 +766,8 @@ const MapGenerator = () => {
       // Check 4: REMOVED - perimeter cell check was too strict and blocked valid placements
       // The post-placement OTG detection will catch actual OTGs
 
-      // FIX 4: PREVENT CORNER-ONLY TOUCHES - Reject placements that would touch only at corners
-      for (let i = 0; i < templateHeight; i++) {
-        for (let j = 0; j < templateWidth; j++) {
-          if (template[i][j] !== 1) continue;
-
-          const tileRow = row + i;
-          const tileCol = col + j;
-
-          // Get all 8 neighbors
-          const N  = isValid(tileRow-1, tileCol) ? tiles[tileRow-1][tileCol] : null;
-          const S  = isValid(tileRow+1, tileCol) ? tiles[tileRow+1][tileCol] : null;
-          const E  = isValid(tileRow, tileCol+1) ? tiles[tileRow][tileCol+1] : null;
-          const W  = isValid(tileRow, tileCol-1) ? tiles[tileRow][tileCol-1] : null;
-          const NE = isValid(tileRow-1, tileCol+1) ? tiles[tileRow-1][tileCol+1] : null;
-          const NW = isValid(tileRow-1, tileCol-1) ? tiles[tileRow-1][tileCol-1] : null;
-          const SE = isValid(tileRow+1, tileCol+1) ? tiles[tileRow+1][tileCol+1] : null;
-          const SW = isValid(tileRow+1, tileCol-1) ? tiles[tileRow+1][tileCol-1] : null;
-
-          const orthogonalNeighbors = [N, S, E, W].filter(n => n !== null && n === terrainType);
-          const diagonalNeighbors = [NE, NW, SE, SW].filter(n => n !== null && n === terrainType);
-
-          // If has diagonal neighbors but NO orthogonal neighbors: REJECT
-          // This means structure would touch only at corner
-          if (diagonalNeighbors.length > 0 && orthogonalNeighbors.length === 0) {
-            return false; // Would create corner-only touch
-          }
-        }
-      }
+      // Check 5: REMOVED - corner-touch prevention was blocking natural structure connections
+      // Structures should be allowed to connect in various ways, OTG detection handles problems
 
       // Check 6: STRICT size limits when structures connect
       // Check if template would connect to existing same-terrain structure
@@ -884,8 +858,8 @@ const MapGenerator = () => {
       const newMidCoverage = (currentMidFilled + midTiles) / currentMidTotal;
       const newBacksideCoverage = (currentBacksideFilled + backsideTiles) / currentBacksideTotal;
 
-      // Don't allow any section to exceed 50% coverage
-      if (newMidCoverage > 0.50 || newBacksideCoverage > 0.50) {
+      // Don't allow any section to exceed 70% coverage (increased from 50% to allow better map density)
+      if (newMidCoverage > 0.70 || newBacksideCoverage > 0.70) {
         return false;
       }
 
@@ -898,8 +872,8 @@ const MapGenerator = () => {
 
       // Check 9: Section-based distribution (FIX 5)
       const sectionCov = getSectionCoverage(row, col, testGrid);
-      if (sectionCov > 0.60) {
-        return false; // Section too dense
+      if (sectionCov > 0.80) {
+        return false; // Section too dense (increased from 60% to allow better variety)
       }
 
       return true; // Placement is valid!
