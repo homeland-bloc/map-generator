@@ -274,24 +274,24 @@ const MapGenerator = () => {
       L_med5: { pattern: [[1,1,0],[1,0,0],[1,0,0]], weight: 3 },
       L_med6: { pattern: [[0,1,1],[0,0,1],[0,0,1]], weight: 3 },
 
-      // T-shapes (reduced weight to make rarer)
-      T_med1: { pattern: [[1,1,1],[0,1,0]], weight: 0.5 },
-      T_med2: { pattern: [[1,0],[1,1],[1,0]], weight: 0.5 },
-      T_med3: { pattern: [[0,1,0],[1,1,1]], weight: 0.5 },
-      T_med4: { pattern: [[0,1],[1,1],[0,1]], weight: 0.5 },
+      // T-shapes (very reduced weight - compact 3x3 patterns)
+      T_med1: { pattern: [[1,1,1],[0,1,0]], weight: 0.1 },
+      T_med2: { pattern: [[1,0],[1,1],[1,0]], weight: 0.1 },
+      T_med3: { pattern: [[0,1,0],[1,1,1]], weight: 0.1 },
+      T_med4: { pattern: [[0,1],[1,1],[0,1]], weight: 0.1 },
 
-      // Diagonal and S-shapes
-      diag1: { pattern: [[1,0],[1,1],[0,1]], weight: 3 },
-      diag2: { pattern: [[0,1],[1,1],[1,0]], weight: 3 },
+      // Diagonal and S-shapes (diagonal shapes in 3x3 area - reduced)
+      diag1: { pattern: [[1,0],[1,1],[0,1]], weight: 0.1 },
+      diag2: { pattern: [[0,1],[1,1],[1,0]], weight: 0.1 },
       S_shape1: { pattern: [[1,1,0],[0,1,1]], weight: 3 },
       S_shape2: { pattern: [[0,1,1],[1,1,0]], weight: 3 },
 
-      // Zig-zag walls (reduced weight to make rarer)
-      zigzag1: { pattern: [[1,0,0],[1,1,0],[0,1,1]], weight: 0.5 },
-      zigzag2: { pattern: [[0,0,1],[0,1,1],[1,1,0]], weight: 0.5 },
+      // Zig-zag walls (very reduced weight - compact 3x3 patterns)
+      zigzag1: { pattern: [[1,0,0],[1,1,0],[0,1,1]], weight: 0.1 },
+      zigzag2: { pattern: [[0,0,1],[0,1,1],[1,1,0]], weight: 0.1 },
 
-      // Plus-shapes (reduced weight to make rarer)
-      plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 0.5 },
+      // Plus-shapes (very reduced weight - compact 3x3 patterns)
+      plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 0.1 },
 
       // U-shapes
       U_med1: { pattern: [[1,0,1],[1,1,1]], weight: 3 },
@@ -381,6 +381,98 @@ const MapGenerator = () => {
       rect_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
       rect_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 1 },
 
+      // Expressive large bush shapes - arcs, triangles, pixelated U/Z
+      // Arc shapes (curved edges)
+      arc_top: { pattern: [
+        [0,1,1,1,1,0],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1]
+      ], weight: 1.5 },
+      arc_bottom: { pattern: [
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [0,1,1,1,1,0]
+      ], weight: 1.5 },
+      arc_left: { pattern: [
+        [0,1,1],
+        [1,1,1],
+        [1,1,1],
+        [1,1,1],
+        [1,1,1],
+        [0,1,1]
+      ], weight: 1.5 },
+      arc_right: { pattern: [
+        [1,1,0],
+        [1,1,1],
+        [1,1,1],
+        [1,1,1],
+        [1,1,1],
+        [1,1,0]
+      ], weight: 1.5 },
+
+      // Triangle shapes (pixelated)
+      triangle_up: { pattern: [
+        [0,0,1,1,0,0],
+        [0,1,1,1,1,0],
+        [1,1,1,1,1,1]
+      ], weight: 1.2 },
+      triangle_down: { pattern: [
+        [1,1,1,1,1,1],
+        [0,1,1,1,1,0],
+        [0,0,1,1,0,0]
+      ], weight: 1.2 },
+
+      // U-shapes (pixelated)
+      U_large: { pattern: [
+        [1,1,0,0,1,1],
+        [1,1,0,0,1,1],
+        [1,1,0,0,1,1],
+        [1,1,1,1,1,1]
+      ], weight: 1.3 },
+      U_wide: { pattern: [
+        [1,1,0,0,0,0,1,1],
+        [1,1,0,0,0,0,1,1],
+        [1,1,1,1,1,1,1,1]
+      ], weight: 1.3 },
+
+      // Z-shapes (pixelated)
+      Z_large: { pattern: [
+        [1,1,1,1,1],
+        [0,0,1,1,0],
+        [0,1,1,0,0],
+        [1,1,1,1,1]
+      ], weight: 1.2 },
+      Z_reversed: { pattern: [
+        [1,1,1,1,1],
+        [0,1,1,0,0],
+        [0,0,1,1,0],
+        [1,1,1,1,1]
+      ], weight: 1.2 },
+
+      // Circle/oval shapes
+      circle_small: { pattern: [
+        [0,1,1,1,0],
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [0,1,1,1,0]
+      ], weight: 1.4 },
+      oval_h: { pattern: [
+        [0,1,1,1,1,1,0],
+        [1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1],
+        [0,1,1,1,1,1,0]
+      ], weight: 1.4 },
+      oval_v: { pattern: [
+        [0,1,1,1,0],
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [1,1,1,1,1],
+        [0,1,1,1,0]
+      ], weight: 1.4 },
+
       // Showdown-specific large bush templates (8x8, 6x6, etc.) - low base weight, boosted by size
       showdown_bush_8x8: { pattern: [
         [1,1,1,1,1,1,1,1],
@@ -439,36 +531,102 @@ const MapGenerator = () => {
 
     const zones = [];
 
-    // Create OPEN zones (30% of map area)
-    for (let i = 0; i < 3; i++) {
-      const width = 5 + Math.floor(Math.random() * 4); // 5-8
-      const height = 7 + Math.floor(Math.random() * 4); // 7-10
-      const startRow = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
-      const startCol = Math.floor(Math.random() * (CANVAS_WIDTH - width));
+    if (isShowdown) {
+      // Showdown maps have distinct diverse areas
+      // Divide map into quadrants (avoiding center 2x2)
+      const quadrantSize = Math.floor(CANVAS_HEIGHT / 2);
 
+      // Bush-heavy area (top-left quadrant)
       zones.push({
-        type: 'OPEN',
-        startRow, endRow: startRow + height - 1,
-        startCol, endCol: startCol + width - 1,
-        targetCoverage: 0.15 + Math.random() * 0.1, // 15-25%
-        minGap: 4
-      });
-    }
-
-    // Create TIGHT zones (20% of map area)
-    for (let i = 0; i < 2; i++) {
-      const width = 4 + Math.floor(Math.random() * 3); // 4-6
-      const height = 5 + Math.floor(Math.random() * 4); // 5-8
-      const startRow = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
-      const startCol = Math.floor(Math.random() * (CANVAS_WIDTH - width));
-
-      zones.push({
-        type: 'TIGHT',
-        startRow, endRow: startRow + height - 1,
-        startCol, endCol: startCol + width - 1,
-        targetCoverage: 0.55 + Math.random() * 0.15, // 55-70%
+        type: 'BUSH_HEAVY',
+        startRow: 0,
+        endRow: quadrantSize - 1,
+        startCol: 0,
+        endCol: quadrantSize - 1,
+        preferredTerrain: TERRAIN_TYPES.GRASS,
+        targetCoverage: 0.45 + Math.random() * 0.15, // 45-60% bushes
         minGap: 2
       });
+
+      // Wall-heavy closed area (top-right quadrant)
+      zones.push({
+        type: 'WALL_HEAVY',
+        startRow: 0,
+        endRow: quadrantSize - 1,
+        startCol: quadrantSize,
+        endCol: CANVAS_WIDTH - 1,
+        preferredTerrain: TERRAIN_TYPES.WALL,
+        targetCoverage: 0.50 + Math.random() * 0.15, // 50-65% walls
+        minGap: 2
+      });
+
+      // Water-heavy area (bottom-left quadrant) - only if water is used
+      if (targetWater > 0) {
+        zones.push({
+          type: 'WATER_HEAVY',
+          startRow: quadrantSize,
+          endRow: CANVAS_HEIGHT - 1,
+          startCol: 0,
+          endCol: quadrantSize - 1,
+          preferredTerrain: TERRAIN_TYPES.WATER,
+          targetCoverage: 0.35 + Math.random() * 0.15, // 35-50% water + some walls
+          minGap: 3
+        });
+      }
+
+      // Open clean area (bottom-right quadrant)
+      zones.push({
+        type: 'OPEN_CLEAN',
+        startRow: quadrantSize,
+        endRow: CANVAS_HEIGHT - 1,
+        startCol: quadrantSize,
+        endCol: CANVAS_WIDTH - 1,
+        preferredTerrain: null, // No preference, keep open
+        targetCoverage: 0.15 + Math.random() * 0.10, // 15-25% sparse
+        minGap: 5
+      });
+
+      console.log(`  Bush-heavy area: top-left quadrant`);
+      console.log(`  Wall-heavy area: top-right quadrant`);
+      if (targetWater > 0) console.log(`  Water-heavy area: bottom-left quadrant`);
+      console.log(`  Open clean area: bottom-right quadrant`);
+    } else {
+      // Standard map zones (non-Showdown)
+      // Create OPEN zones (30% of map area)
+      for (let i = 0; i < 3; i++) {
+        const width = 5 + Math.floor(Math.random() * 4); // 5-8
+        const height = 7 + Math.floor(Math.random() * 4); // 7-10
+        const startRow = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
+        const startCol = Math.floor(Math.random() * (CANVAS_WIDTH - width));
+
+        zones.push({
+          type: 'OPEN',
+          startRow, endRow: startRow + height - 1,
+          startCol, endCol: startCol + width - 1,
+          targetCoverage: 0.15 + Math.random() * 0.1, // 15-25%
+          minGap: 4
+        });
+      }
+
+      // Create TIGHT zones (20% of map area)
+      for (let i = 0; i < 2; i++) {
+        const width = 4 + Math.floor(Math.random() * 3); // 4-6
+        const height = 5 + Math.floor(Math.random() * 4); // 5-8
+        const startRow = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
+        const startCol = Math.floor(Math.random() * (CANVAS_WIDTH - width));
+
+        zones.push({
+          type: 'TIGHT',
+          startRow, endRow: startRow + height - 1,
+          startCol, endCol: startCol + width - 1,
+          targetCoverage: 0.55 + Math.random() * 0.15, // 55-70%
+          minGap: 2
+        });
+      }
+
+      console.log(`  Open zones: ${zones.filter(z => z.type === 'OPEN').length}`);
+      console.log(`  Tight zones: ${zones.filter(z => z.type === 'TIGHT').length}`);
+      console.log(`  Normal zone: rest of map`);
     }
 
     // Rest of map is NORMAL zone (implicit)
@@ -477,10 +635,6 @@ const MapGenerator = () => {
       targetCoverage: 0.35 + Math.random() * 0.1, // 35-45%
       minGap: 2
     };
-
-    console.log(`  Open zones: ${zones.filter(z => z.type === 'OPEN').length}`);
-    console.log(`  Tight zones: ${zones.filter(z => z.type === 'TIGHT').length}`);
-    console.log(`  Normal zone: rest of map`);
 
     // Helper to determine which zone a position is in
     const getZone = (row, col) => {
@@ -861,6 +1015,44 @@ const MapGenerator = () => {
       // Don't allow any section to exceed 70% coverage (increased from 50% to allow better map density)
       if (newMidCoverage > 0.70 || newBacksideCoverage > 0.70) {
         return false;
+      }
+
+      // Check 7b: Showdown center protection (2x2 mid)
+      // If walls or water are placed on the very center 2x2, keep them very small and unattached
+      if (isShowdown && (terrainType === TERRAIN_TYPES.WALL || terrainType === TERRAIN_TYPES.WATER)) {
+        const centerRows = [29, 30]; // Center 2x2 for 60x60 map
+        const centerCols = [29, 30];
+
+        // Check if template overlaps center 2x2
+        let overlapsCenter = false;
+        for (let i = 0; i < templateHeight; i++) {
+          for (let j = 0; j < templateWidth; j++) {
+            if (template[i][j] === 1) {
+              const tileRow = row + i;
+              const tileCol = col + j;
+              if (centerRows.includes(tileRow) && centerCols.includes(tileCol)) {
+                overlapsCenter = true;
+                break;
+              }
+            }
+          }
+          if (overlapsCenter) break;
+        }
+
+        if (overlapsCenter) {
+          // Count template tiles
+          const templateSize = template.flat().filter(t => t === 1).length;
+
+          // Reject if structure is large (>4 tiles)
+          if (templateSize > 4) {
+            return false; // Center structures must be very small
+          }
+
+          // Reject if would connect to existing structures
+          if (connectedStructures.size > 0) {
+            return false; // Center structures must be unattached
+          }
+        }
       }
 
       // Check 8: Internal corners check for L/T-shapes (FIX 3)
@@ -2672,6 +2864,44 @@ const MapGenerator = () => {
     }
 
     console.log(`Joint wall+water violations: ${jointStructureViolations} (should be 0)`);
+
+    // CRITICAL VALIDATION: Check small bush protrusions
+    // For small bushes (below 8 tiles), avoid 1-tile protrusions unless it makes a 2x3 into an L-shape
+    let bushProtrusionViolations = 0;
+    const bushStructuresAll = identifyAllStructures(placedTiles, TERRAIN_TYPES.GRASS);
+
+    for (const bushStruct of bushStructuresAll) {
+      const bushSize = bushStruct.length;
+
+      // Only check bushes below 8 tiles
+      if (bushSize >= 8) continue;
+
+      // Check each tile in the bush for protrusions
+      for (const [br, bc] of bushStruct) {
+        // Count orthogonal bush neighbors
+        const N_bush = isValid(br-1, bc) && placedTiles[br-1][bc] === TERRAIN_TYPES.GRASS;
+        const S_bush = isValid(br+1, bc) && placedTiles[br+1][bc] === TERRAIN_TYPES.GRASS;
+        const E_bush = isValid(br, bc+1) && placedTiles[br][bc+1] === TERRAIN_TYPES.GRASS;
+        const W_bush = isValid(br, bc-1) && placedTiles[br][bc-1] === TERRAIN_TYPES.GRASS;
+
+        const bushNeighbors = [N_bush, S_bush, E_bush, W_bush].filter(Boolean).length;
+
+        // 1-tile protrusion: only 1 bush neighbor
+        if (bushNeighbors === 1) {
+          // Check if this is an L-shape formed from a 2x3 bush
+          // A valid L-shape has 5 tiles (2x3 with one corner removed)
+          const isValidLShape = bushSize === 5;
+
+          if (!isValidLShape) {
+            console.log(`  ERROR: BUSH at (${br},${bc}) has 1-tile protrusion (size: ${bushSize}, not an L-shape from 2x3)`);
+            bushProtrusionViolations++;
+            break; // Only count once per bush structure
+          }
+        }
+      }
+    }
+
+    console.log(`Bush protrusion violations: ${bushProtrusionViolations} (should be 0)`);
 
     // Bush size statistics after merging
     const bushStructuresAfterMerge = identifyAllStructures(placedTiles, TERRAIN_TYPES.GRASS);
