@@ -319,43 +319,78 @@ const MapGenerator = () => {
       C_shape2: { pattern: [[1,1,1],[0,0,1],[1,1,1]], weight: 2 },
       T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 0.5 },
 
-      // Showdown-specific large templates (10x10, 8x8, etc.) - low base weight, boosted by size in Showdown
-      showdown_wall_10x10: { pattern: [
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1]
-      ], weight: 0.1 },
-      showdown_L_8x8: { pattern: [
+      // Showdown-specific large templates - Long thin walls for map-defining patterns
+      // Long bars (preferred for Showdown - define lanes and corridors)
+      showdown_bar_v8: { pattern: [[1],[1],[1],[1],[1],[1],[1],[1]], weight: 3 },
+      showdown_bar_h8: { pattern: [[1,1,1,1,1,1,1,1]], weight: 3 },
+      showdown_bar_v10: { pattern: [[1],[1],[1],[1],[1],[1],[1],[1],[1],[1]], weight: 2.5 },
+      showdown_bar_h10: { pattern: [[1,1,1,1,1,1,1,1,1,1]], weight: 2.5 },
+      showdown_bar_v12: { pattern: [[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1]], weight: 2 },
+      showdown_bar_h12: { pattern: [[1,1,1,1,1,1,1,1,1,1,1,1]], weight: 2 },
+      // 2-wide long walls (thick enough for cover, long for defining areas)
+      showdown_wall_2x8: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 2.5 },
+      showdown_wall_8x2: { pattern: [[1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1]], weight: 2.5 },
+      showdown_wall_2x10: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 2 },
+      showdown_wall_10x2: { pattern: [[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1]], weight: 2 },
+      showdown_wall_2x12: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1.5 },
+      showdown_wall_12x2: { pattern: [[1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1]], weight: 1.5 },
+      // 3-wide long walls (max thickness for long structures)
+      showdown_wall_3x8: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 1.5 },
+      showdown_wall_8x3: { pattern: [[1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1]], weight: 1.5 },
+      // Large L-shapes (for corner formations)
+      showdown_L_large_v: { pattern: [
+        [1,1],[1,1],[1,1],[1,1],[1,1],[1,1],[1,1,1,1,1,1]
+      ], weight: 1.5 },
+      showdown_L_large_h: { pattern: [
         [1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1],
-        [1,1,1,1,0,0,0,0],
-        [1,1,1,1,0,0,0,0],
-        [1,1,1,1,0,0,0,0],
-        [1,1,1,1,0,0,0,0],
-        [1,1,1,1,0,0,0,0],
-        [1,1,1,1,0,0,0,0]
-      ], weight: 0.1 },
-      showdown_wall_6x6: { pattern: [
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1],
+        [1,1,0,0,0,0,0,0]
+      ], weight: 1.5 },
+      showdown_L_6x6: { pattern: [
+        [1,1,0,0,0,0],
+        [1,1,0,0,0,0],
+        [1,1,0,0,0,0],
+        [1,1,0,0,0,0],
         [1,1,1,1,1,1],
         [1,1,1,1,1,1]
-      ], weight: 0.2 },
-      showdown_wall_8x4: { pattern: [
-        [1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1],
+      ], weight: 1.2 },
+      // U-shapes (for defensive formations)
+      showdown_U_large: { pattern: [
+        [1,1,0,0,0,0,1,1],
+        [1,1,0,0,0,0,1,1],
+        [1,1,0,0,0,0,1,1],
         [1,1,1,1,1,1,1,1],
         [1,1,1,1,1,1,1,1]
-      ], weight: 0.2 }
+      ], weight: 0.8 },
+      // C-shapes
+      showdown_C_large: { pattern: [
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,0,0,0,0],
+        [1,1,0,0,0,0],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1]
+      ], weight: 0.8 },
+      // Diagonal-ish stepped walls
+      showdown_stepped_1: { pattern: [
+        [1,1,0,0,0,0],
+        [1,1,1,1,0,0],
+        [0,0,1,1,1,1],
+        [0,0,0,0,1,1]
+      ], weight: 1 },
+      showdown_stepped_2: { pattern: [
+        [0,0,0,0,1,1],
+        [0,0,1,1,1,1],
+        [1,1,1,1,0,0],
+        [1,1,0,0,0,0]
+      ], weight: 1 },
+      // T-junction large
+      showdown_T_large: { pattern: [
+        [1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1],
+        [0,0,0,1,1,0,0,0],
+        [0,0,0,1,1,0,0,0],
+        [0,0,0,1,1,0,0,0]
+      ], weight: 0.8 }
     };
 
     const BUSH_TEMPLATES = {
@@ -377,7 +412,6 @@ const MapGenerator = () => {
       L_wide4: { pattern: [[1,1,1],[0,1,1],[0,1,1]], weight: 1.5 },
 
       // Larger bush clusters
-      T_bush: { pattern: [[0,1,1,0],[1,1,1,1],[0,1,1,0]], weight: 1 },
       rect_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
       rect_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 1 },
 
@@ -490,22 +524,13 @@ const MapGenerator = () => {
         });
       }
 
-      // Open clean area (bottom-right quadrant)
-      zones.push({
-        type: 'OPEN_CLEAN',
-        startRow: quadrantSize,
-        endRow: CANVAS_HEIGHT - 1,
-        startCol: quadrantSize,
-        endCol: CANVAS_WIDTH - 1,
-        preferredTerrain: null, // No preference, keep open
-        targetCoverage: 0.15 + Math.random() * 0.10, // 15-25% sparse
-        minGap: 5
-      });
+      // NOTE: OPEN_CLEAN area removed - there are many open areas by default
+      // Bottom-right quadrant will naturally be handled by NORMAL zone
 
       console.log(`  Bush-heavy area: top-left quadrant`);
       console.log(`  Wall-heavy area: top-right quadrant`);
       if (targetWater > 0) console.log(`  Water-heavy area: bottom-left quadrant`);
-      console.log(`  Open clean area: bottom-right quadrant`);
+      console.log(`  Bottom-right: handled by normal zone distribution`);
     } else {
       // Standard map zones (non-Showdown)
       // Create OPEN zones (30% of map area)
@@ -814,11 +839,12 @@ const MapGenerator = () => {
         return false;
       }
 
-      // Check 2: Reject 1x1 water templates immediately
+      // Check 2: Reject small water templates (1x1, 2x2, and anything under 6 tiles)
+      // Water structures should be substantial - minimum 6 tiles
       if (terrainType === TERRAIN_TYPES.WATER) {
         const templateSize = template.flat().filter(t => t === 1).length;
-        if (templateSize === 1) {
-          return false; // 1x1 water not allowed
+        if (templateSize < 6) {
+          return false; // Small water not allowed - minimum 6 tiles required
         }
       }
 
@@ -1333,26 +1359,39 @@ const MapGenerator = () => {
           weight *= RECENT_TEMPLATE_WEIGHT_PENALTY;
         }
 
-        // For Showdown: favor long thin structures over thick rectangles
+        // For Showdown: favor long thin structures, penalize tiny structures
         if (isShowdown) {
           const pattern = template.pattern;
           const height = pattern.length;
           const width = pattern[0].length;
           const maxDim = Math.max(height, width);
           const minDim = Math.min(height, width);
+          const templateSize = countTilesInTemplate(pattern);
+
+          // HEAVILY penalize 1x1 single tiles in Showdown (too much repetition)
+          if (templateSize === 1) {
+            weight *= 0.1; // 90% reduction for single tiles
+          }
+          // Penalize very small templates (2-3 tiles) in Showdown
+          else if (templateSize <= 3) {
+            weight *= 0.3; // 70% reduction for tiny templates
+          }
+          // Boost large templates significantly for Showdown
+          else if (templateSize >= 12) {
+            weight *= 3.0; // 3x boost for large templates
+          }
+          else if (templateSize >= 8) {
+            weight *= 2.0; // 2x boost for medium-large templates
+          }
 
           // Calculate aspect ratio (length / thickness)
           const aspectRatio = maxDim / Math.max(1, minDim);
 
           // Favor structures with high aspect ratio (long and thin)
-          // Ratio 1:1 (square) gets no bonus, ratio 4:1 gets 2x, ratio 6:1 gets 2.5x
-          const aspectBonus = Math.min(2.5, 1 + (aspectRatio - 1) * 0.4);
+          // Ratio 1:1 (square) gets no bonus, ratio 4:1 gets 2.5x, ratio 6:1 gets 3x
+          const aspectBonus = Math.min(3.0, 1 + (aspectRatio - 1) * 0.5);
 
-          // Small size bonus for variety (prefer medium-sized structures)
-          const templateSize = countTilesInTemplate(pattern);
-          const sizeBonus = Math.sqrt(templateSize) * 0.5 + 0.5; // 0.5x to 1.5x
-
-          weight *= aspectBonus * sizeBonus;
+          weight *= aspectBonus;
         }
 
         adjustedWeights[name] = weight;
@@ -1606,6 +1645,18 @@ const MapGenerator = () => {
 
         for (const otg of criticalOTGs) {
           console.log(`  - Fixing ${otg.type} OTG at (${otg.row},${otg.col})`);
+
+          // Special handling for water OTGs - remove the water tile itself
+          if (otg.type === 'water-isolated' || otg.type === 'water-protrusion' || otg.type === 'water-1-tile-wide' || otg.type === 'water-too-small') {
+            const waterTile = tiles[otg.row][otg.col];
+            if (waterTile === TERRAIN_TYPES.WATER) {
+              tiles[otg.row][otg.col] = null;
+              iterationFixes++;
+              totalOTGsFixed++;
+              console.log(`    ✓ Removed water tile at (${otg.row},${otg.col}) (${otg.type})`);
+              continue;
+            }
+          }
 
           // Find adjacent filled tiles to remove (including diagonals for all OTGs)
           const neighbors = [
@@ -2486,6 +2537,368 @@ const MapGenerator = () => {
       }
     }
 
+    // ===== PHASE 5.25: WATER-WALL INTEGRATION =====
+    // Water structures should be integrated with walls for tactical interest
+    // 60-70% of water structures get walls at edges/corners
+    const integrateWaterWithWalls = (tiles) => {
+      console.log('\n--- Water-Wall Integration ---');
+      let wallsAdded = 0;
+
+      // Find all water structures
+      const waterStructures = identifyAllStructures(tiles, TERRAIN_TYPES.WATER);
+      console.log(`  Found ${waterStructures.length} water structures`);
+
+      for (const waterStruct of waterStructures) {
+        // 60-70% chance to add wall integration
+        if (Math.random() > 0.65) {
+          console.log(`  Skipping water structure (random chance)`);
+          continue;
+        }
+
+        // Get structure bounds
+        const bounds = getStructureBounds(waterStruct);
+        const structureSize = waterStruct.length;
+
+        // Find edge tiles (water tiles with at least one non-water orthogonal neighbor)
+        const edgeTiles = [];
+        const cornerTiles = [];
+
+        for (const [row, col] of waterStruct) {
+          const neighbors = [
+            [row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]
+          ];
+
+          const nonWaterNeighbors = neighbors.filter(([r, c]) => {
+            if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) return true;
+            return tiles[r][c] !== TERRAIN_TYPES.WATER;
+          });
+
+          if (nonWaterNeighbors.length > 0) {
+            // Check if it's a corner (2+ non-water orthogonal neighbors)
+            if (nonWaterNeighbors.length >= 2) {
+              cornerTiles.push([row, col]);
+            } else {
+              edgeTiles.push([row, col]);
+            }
+          }
+        }
+
+        // Determine how many tiles to convert (1-4 based on structure size)
+        let tilesToConvert = 1;
+        if (structureSize >= 12) tilesToConvert = Math.floor(Math.random() * 3) + 2; // 2-4
+        else if (structureSize >= 8) tilesToConvert = Math.floor(Math.random() * 2) + 1; // 1-2
+
+        console.log(`  Water structure at (${bounds.minRow},${bounds.minCol}): ${structureSize} tiles, converting ${tilesToConvert} to walls`);
+
+        // Prefer corners, then edges
+        const candidateTiles = [...cornerTiles, ...edgeTiles];
+
+        // Shuffle candidates for variety
+        for (let i = candidateTiles.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [candidateTiles[i], candidateTiles[j]] = [candidateTiles[j], candidateTiles[i]];
+        }
+
+        // Convert tiles (prefer corners first)
+        let converted = 0;
+        const convertedPositions = new Set();
+
+        // First pass: try corners
+        for (const [row, col] of cornerTiles) {
+          if (converted >= tilesToConvert) break;
+
+          // Check that converting this won't create an island (wall surrounded by water)
+          // A wall is valid if it has at least one non-water neighbor (including edges)
+          const neighbors = [
+            [row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]
+          ];
+
+          const hasNonWaterNeighbor = neighbors.some(([r, c]) => {
+            if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) return true; // Edge is valid
+            const neighbor = tiles[r][c];
+            return neighbor !== TERRAIN_TYPES.WATER || convertedPositions.has(`${r},${c}`);
+          });
+
+          if (hasNonWaterNeighbor) {
+            tiles[row][col] = TERRAIN_TYPES.WALL;
+            convertedPositions.add(`${row},${col}`);
+            converted++;
+            wallsAdded++;
+          }
+        }
+
+        // Second pass: try edges if we need more
+        for (const [row, col] of edgeTiles) {
+          if (converted >= tilesToConvert) break;
+          if (convertedPositions.has(`${row},${col}`)) continue;
+
+          const neighbors = [
+            [row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]
+          ];
+
+          const hasNonWaterNeighbor = neighbors.some(([r, c]) => {
+            if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) return true;
+            const neighbor = tiles[r][c];
+            return neighbor !== TERRAIN_TYPES.WATER || convertedPositions.has(`${r},${c}`);
+          });
+
+          if (hasNonWaterNeighbor) {
+            tiles[row][col] = TERRAIN_TYPES.WALL;
+            convertedPositions.add(`${row},${col}`);
+            converted++;
+            wallsAdded++;
+          }
+        }
+
+        if (converted > 0) {
+          console.log(`    Converted ${converted} water tiles to walls`);
+        }
+      }
+
+      console.log(`  Total walls added to water structures: ${wallsAdded}`);
+      return wallsAdded;
+    };
+
+    // Run water-wall integration
+    const waterWallsAdded = integrateWaterWithWalls(placedTiles);
+
+    // ===== PHASE 5.5: THICKNESS CHECK - Detect and reduce 4x4 solid areas =====
+    // Structures that have a 4x4 solid area inside are way too thick
+    // Exception: Showdown outskirts bushes can be thick (edge cover)
+    const reduceThickStructures = (tiles) => {
+      console.log('\n--- Thickness Check (4x4 area detection) ---');
+      let tilesRemoved = 0;
+      const OUTSKIRTS_BUFFER = 10; // Tiles from edge considered outskirts in Showdown
+
+      // Helper: Check if position is in Showdown outskirts
+      const isInOutskirts = (row, col) => {
+        if (!isShowdown) return false;
+        return row < OUTSKIRTS_BUFFER || row >= CANVAS_HEIGHT - OUTSKIRTS_BUFFER ||
+               col < OUTSKIRTS_BUFFER || col >= CANVAS_WIDTH - OUTSKIRTS_BUFFER;
+      };
+
+      // Helper: Check if a 4x4 area starting at (row, col) is solid with given terrain
+      const has4x4SolidArea = (row, col, terrainType) => {
+        if (row + 4 > CANVAS_HEIGHT || col + 4 > CANVAS_WIDTH) return false;
+        for (let r = row; r < row + 4; r++) {
+          for (let c = col; c < col + 4; c++) {
+            if (tiles[r][c] !== terrainType) return false;
+          }
+        }
+        return true;
+      };
+
+      // Scan for 4x4 solid areas in walls, bushes, and water
+      const terrainTypes = [TERRAIN_TYPES.WALL, TERRAIN_TYPES.GRASS, TERRAIN_TYPES.WATER];
+
+      for (const terrainType of terrainTypes) {
+        const terrainName = terrainType === TERRAIN_TYPES.WALL ? 'WALL' :
+                           terrainType === TERRAIN_TYPES.GRASS ? 'BUSH' : 'WATER';
+
+        for (let row = 0; row < CANVAS_HEIGHT - 3; row++) {
+          for (let col = 0; col < CANVAS_WIDTH - 3; col++) {
+            if (has4x4SolidArea(row, col, terrainType)) {
+              // Exception: Allow thick bushes in Showdown outskirts
+              if (terrainType === TERRAIN_TYPES.GRASS && isInOutskirts(row, col)) {
+                continue; // Skip outskirts bushes
+              }
+
+              console.log(`  Found 4x4 solid ${terrainName} at (${row},${col}) - reducing thickness`);
+
+              // Strategy: Remove tiles to create a 2-wide or 3-wide structure instead
+              // Remove inner 2x2 to create a hollow structure, or remove a stripe
+              // For variety, alternate between strategies
+              const strategy = (row + col) % 2;
+
+              if (strategy === 0) {
+                // Strategy 1: Remove inner 2x2 (create hollow)
+                tiles[row + 1][col + 1] = null;
+                tiles[row + 1][col + 2] = null;
+                tiles[row + 2][col + 1] = null;
+                tiles[row + 2][col + 2] = null;
+                tilesRemoved += 4;
+              } else {
+                // Strategy 2: Remove middle row/column (create split)
+                // Alternate between horizontal and vertical split
+                const splitDir = (row + col) % 4 < 2 ? 'horizontal' : 'vertical';
+                if (splitDir === 'horizontal') {
+                  // Remove middle row
+                  for (let c = col; c < col + 4; c++) {
+                    if (tiles[row + 1][c] === terrainType) {
+                      tiles[row + 1][c] = null;
+                      tilesRemoved++;
+                    }
+                  }
+                } else {
+                  // Remove middle column
+                  for (let r = row; r < row + 4; r++) {
+                    if (tiles[r][col + 1] === terrainType) {
+                      tiles[r][col + 1] = null;
+                      tilesRemoved++;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      console.log(`  Removed ${tilesRemoved} tiles from overly thick structures`);
+      return tilesRemoved;
+    };
+
+    // Run thickness check
+    const thicknessTilesRemoved = reduceThickStructures(placedTiles);
+
+    // ===== PHASE 5.75: STRUCTURE VARIETY ENFORCEMENT =====
+    // Ensure walls and bushes are distributed evenly across map sections
+    const enforceStructureVariety = (tiles) => {
+      console.log('\n--- Structure Variety Enforcement ---');
+
+      // Define sections based on map type
+      const sections = [];
+
+      if (isShowdown) {
+        // Showdown: 9 sections (3x3 grid of 20x20 areas)
+        const sectionSize = 20;
+        for (let sr = 0; sr < 3; sr++) {
+          for (let sc = 0; sc < 3; sc++) {
+            sections.push({
+              name: `Section (${sr},${sc})`,
+              startRow: sr * sectionSize,
+              endRow: (sr + 1) * sectionSize - 1,
+              startCol: sc * sectionSize,
+              endCol: (sc + 1) * sectionSize - 1,
+              isCenter: sr === 1 && sc === 1,
+              requireWalls: true,
+              requireBushes: true
+            });
+          }
+        }
+      } else {
+        // 3v3: Define 7x7 subdivisions
+        // Map is 21x33, so subdivisions are approximate
+        const colSize = 7;
+        const rowSize = 11;
+
+        // Upper backside (rows 0-10)
+        sections.push({ name: 'Upper-Left', startRow: 0, endRow: 10, startCol: 0, endCol: 6, requireWalls: true, requireBushes: true });
+        sections.push({ name: 'Upper-Mid', startRow: 0, endRow: 10, startCol: 7, endCol: 13, requireWalls: true, requireBushes: true });
+        sections.push({ name: 'Upper-Right', startRow: 0, endRow: 10, startCol: 14, endCol: 20, requireWalls: true, requireBushes: true });
+
+        // Mid strip (rows 11-21)
+        sections.push({ name: 'Mid-Left', startRow: 11, endRow: 21, startCol: 0, endCol: 6, requireWalls: true, requireBushes: true });
+        sections.push({ name: 'Mid-Center', startRow: 11, endRow: 21, startCol: 7, endCol: 13, requireWalls: true, requireBushes: true, isCenter: true });
+        sections.push({ name: 'Mid-Right', startRow: 11, endRow: 21, startCol: 14, endCol: 20, requireWalls: true, requireBushes: true });
+
+        // Lower backside (rows 22-32)
+        sections.push({ name: 'Lower-Left', startRow: 22, endRow: 32, startCol: 0, endCol: 6, requireWalls: true, requireBushes: true });
+        sections.push({ name: 'Lower-Mid', startRow: 22, endRow: 32, startCol: 7, endCol: 13, requireWalls: true, requireBushes: true });
+        sections.push({ name: 'Lower-Right', startRow: 22, endRow: 32, startCol: 14, endCol: 20, requireWalls: true, requireBushes: true });
+      }
+
+      // Calculate coverage for each section
+      const sectionStats = sections.map(section => {
+        let wallCount = 0, bushCount = 0, totalTiles = 0;
+        for (let r = section.startRow; r <= section.endRow; r++) {
+          for (let c = section.startCol; c <= section.endCol; c++) {
+            totalTiles++;
+            if (tiles[r][c] === TERRAIN_TYPES.WALL) wallCount++;
+            else if (tiles[r][c] === TERRAIN_TYPES.GRASS) bushCount++;
+          }
+        }
+        return {
+          ...section,
+          wallCount,
+          bushCount,
+          totalTiles,
+          wallCoverage: wallCount / totalTiles,
+          bushCoverage: bushCount / totalTiles
+        };
+      });
+
+      // Calculate average coverage
+      const avgWallCoverage = sectionStats.reduce((sum, s) => sum + s.wallCoverage, 0) / sectionStats.length;
+      const avgBushCoverage = sectionStats.reduce((sum, s) => sum + s.bushCoverage, 0) / sectionStats.length;
+
+      console.log(`  Average wall coverage: ${(avgWallCoverage * 100).toFixed(1)}%`);
+      console.log(`  Average bush coverage: ${(avgBushCoverage * 100).toFixed(1)}%`);
+
+      // Identify sections that are significantly below average
+      const MIN_COVERAGE_RATIO = 0.3; // Section should have at least 30% of average
+      let structuresAdded = 0;
+
+      for (const section of sectionStats) {
+        // Skip center sections which can sometimes be more open
+        if (section.isCenter && Math.random() < 0.3) {
+          console.log(`  ${section.name}: Center section - allowing to be open`);
+          continue;
+        }
+
+        const needsWalls = section.requireWalls && section.wallCoverage < avgWallCoverage * MIN_COVERAGE_RATIO && avgWallCoverage > 0.02;
+        const needsBushes = section.requireBushes && section.bushCoverage < avgBushCoverage * MIN_COVERAGE_RATIO && avgBushCoverage > 0.02;
+
+        if (needsWalls || needsBushes) {
+          console.log(`  ${section.name} needs rebalancing: walls=${(section.wallCoverage * 100).toFixed(1)}%, bushes=${(section.bushCoverage * 100).toFixed(1)}%`);
+
+          // Try to add small structures to sparse sections
+          const terrainToAdd = needsWalls ? TERRAIN_TYPES.WALL : TERRAIN_TYPES.GRASS;
+          const maxAttempts = 20;
+          let attempts = 0;
+          let added = 0;
+
+          while (attempts < maxAttempts && added < 3) {
+            attempts++;
+            // Random position within section
+            const row = section.startRow + Math.floor(Math.random() * (section.endRow - section.startRow - 1));
+            const col = section.startCol + Math.floor(Math.random() * (section.endCol - section.startCol - 1));
+
+            // Check if we can place a small 2x2 structure
+            if (row + 2 <= section.endRow && col + 2 <= section.endCol) {
+              let canPlace = true;
+              for (let r = row; r < row + 2; r++) {
+                for (let c = col; c < col + 2; c++) {
+                  if (tiles[r][c] !== null) {
+                    canPlace = false;
+                    break;
+                  }
+                }
+                if (!canPlace) break;
+              }
+
+              if (canPlace) {
+                // Place 2x2 structure
+                for (let r = row; r < row + 2; r++) {
+                  for (let c = col; c < col + 2; c++) {
+                    tiles[r][c] = terrainToAdd;
+                  }
+                }
+                added++;
+                structuresAdded++;
+              }
+            }
+          }
+
+          if (added > 0) {
+            console.log(`    Added ${added} small ${terrainToAdd === TERRAIN_TYPES.WALL ? 'wall' : 'bush'} structures`);
+          }
+        }
+      }
+
+      // Log final section coverage
+      console.log('\n  Final section coverage:');
+      for (const section of sectionStats) {
+        console.log(`    ${section.name}: walls=${(section.wallCoverage * 100).toFixed(1)}%, bushes=${(section.bushCoverage * 100).toFixed(1)}%`);
+      }
+
+      console.log(`  Total structures added for variety: ${structuresAdded}`);
+      return structuresAdded;
+    };
+
+    // Run structure variety enforcement
+    const varietyStructuresAdded = enforceStructureVariety(placedTiles);
+
     // ===== PHASE 6: POST-PLACEMENT CLEANUP =====
     console.log('\n--- PHASE 6: Post-Placement Cleanup ---');
 
@@ -2997,6 +3410,7 @@ const MapGenerator = () => {
     // === TYPE 4: Corner-Touch 2×2 Pattern ===
     // Special case: Two walls touching only at diagonal corner
     // Creates two 1-tile passages in the other corners
+    // IMPORTANT: Bushes count as walkable (empty) for this check
     for (let row = 0; row < CANVAS_HEIGHT - 1; row++) {
       for (let col = 0; col < CANVAS_WIDTH - 1; col++) {
         const TL = tiles[row][col];
@@ -3009,15 +3423,18 @@ const MapGenerator = () => {
         const isBLWall = BL === TERRAIN_TYPES.WALL || BL === TERRAIN_TYPES.WATER;
         const isBRWall = BR === TERRAIN_TYPES.WALL || BR === TERRAIN_TYPES.WATER;
 
-        // Pattern 1: TL and BR are walls, TR and BL are empty
-        if (isTLWall && isBRWall && !isTRWall && !isBLWall && TR === null && BL === null) {
-          // The two empty tiles form 1-tile passages
+        // Helper: Check if tile is walkable (empty or bush)
+        const isWalkable = (tile) => tile === null || tile === TERRAIN_TYPES.GRASS;
+
+        // Pattern 1: TL and BR are walls, TR and BL are walkable (empty or bush)
+        if (isTLWall && isBRWall && !isTRWall && !isBLWall && isWalkable(TR) && isWalkable(BL)) {
+          // The two walkable tiles form 1-tile passages
           otgs.push({row: row, col: col + 1, type: '2x2-corner-touch', severity: 'critical'});
           otgs.push({row: row + 1, col: col, type: '2x2-corner-touch', severity: 'critical'});
         }
 
-        // Pattern 2: TR and BL are walls, TL and BR are empty
-        if (isTRWall && isBLWall && !isTLWall && !isBRWall && TL === null && BR === null) {
+        // Pattern 2: TR and BL are walls, TL and BR are walkable (empty or bush)
+        if (isTRWall && isBLWall && !isTLWall && !isBRWall && isWalkable(TL) && isWalkable(BR)) {
           otgs.push({row: row, col: col, type: '2x2-corner-touch', severity: 'critical'});
           otgs.push({row: row + 1, col: col + 1, type: '2x2-corner-touch', severity: 'critical'});
         }
@@ -3051,6 +3468,35 @@ const MapGenerator = () => {
         // Isolated 1x1 water tile
         if (waterNeighbors === 0) {
           otgs.push({row, col, type: 'water-isolated', severity: 'critical'});
+        }
+
+        // Check for small water structures (2x2 or smaller)
+        // These are undesirable - water should be substantial
+        if (waterNeighbors <= 2) {
+          // Count total connected water size using a quick check
+          const visited = new Set();
+          const queue = [[row, col]];
+          let totalWaterSize = 0;
+
+          while (queue.length > 0 && totalWaterSize <= 5) {
+            const [r, c] = queue.shift();
+            const key = `${r},${c}`;
+            if (visited.has(key)) continue;
+            if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) continue;
+            if (tiles[r][c] !== TERRAIN_TYPES.WATER) continue;
+
+            visited.add(key);
+            totalWaterSize++;
+
+            if (totalWaterSize <= 5) {
+              queue.push([r-1, c], [r+1, c], [r, c-1], [r, c+1]);
+            }
+          }
+
+          // If water structure is 5 tiles or smaller, flag it for removal
+          if (totalWaterSize <= 5) {
+            otgs.push({row, col, type: 'water-too-small', severity: 'critical'});
+          }
         }
       }
     }
@@ -3210,7 +3656,7 @@ const MapGenerator = () => {
       <div className="relative z-10 flex items-start justify-center gap-4 p-4 max-w-7xl mx-auto">
         {/* Left Sidebar */}
         <div className="fixed left-0 top-20 z-20 flex items-center">
-          <div className={`bg-black bg-opacity-40 border-r border-t border-b border-cyan-400 border-opacity-50 rounded-r-lg p-2 backdrop-blur-sm transition-transform duration-300 ${leftSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className={`bg-black bg-opacity-40 border-r border-t border-b border-yellow-400 border-opacity-70 rounded-r-lg p-2 backdrop-blur-sm transition-transform duration-300 ${leftSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
             <div className="flex flex-col gap-4 w-60">
               {/* Map Size */}
               <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-4 backdrop-blur-sm">
@@ -3225,6 +3671,8 @@ const MapGenerator = () => {
                         const newWidth = MAP_SIZES[newSize].width;
                         const newHeight = MAP_SIZES[newSize].height;
                         setTiles(Array(newHeight).fill(null).map(() => Array(newWidth).fill(null)));
+                        // Auto-adjust zoom based on map size
+                        setZoom(newSize === 'showdown' ? 0.5 : 1.0);
                       } else {
                         // User cancelled - reset select to current value
                         e.target.value = mapSize;
@@ -3265,13 +3713,15 @@ const MapGenerator = () => {
 
           <button
             onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-            className={`bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-r-lg transition-all ${leftSidebarOpen ? '' : 'translate-x-0'}`}
+            className={`bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-r-lg transition-all border-2 border-yellow-400 ${leftSidebarOpen ? '' : 'translate-x-0'}`}
             style={{
               position: leftSidebarOpen ? 'relative' : 'absolute',
-              left: leftSidebarOpen ? 0 : 0
+              left: leftSidebarOpen ? 0 : 0,
+              fontSize: '18px',
+              fontWeight: 'bold'
             }}
           >
-            {leftSidebarOpen ? '←' : '→'}
+            {leftSidebarOpen ? '<' : '>'}
           </button>
         </div>
 
@@ -3474,16 +3924,18 @@ const MapGenerator = () => {
         <div className="fixed right-0 top-20 z-20 flex items-center">
           <button
             onClick={() => setToolbarOpen(!toolbarOpen)}
-            className={`bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-l-lg transition-all ${!toolbarOpen ? 'translate-x-0' : ''}`}
+            className={`bg-amber-500 hover:bg-amber-600 text-white p-2 rounded-l-lg transition-all border-2 border-yellow-400 ${!toolbarOpen ? 'translate-x-0' : ''}`}
             style={{
               position: toolbarOpen ? 'relative' : 'absolute',
-              right: toolbarOpen ? 0 : 0
+              right: toolbarOpen ? 0 : 0,
+              fontSize: '18px',
+              fontWeight: 'bold'
             }}
           >
-            {toolbarOpen ? '→' : '←'}
+            {toolbarOpen ? '>' : '<'}
           </button>
-          
-          <div className={`bg-black bg-opacity-40 border-l border-t border-b border-purple-400 border-opacity-50 rounded-l-lg p-2 backdrop-blur-sm transition-transform duration-300 ${toolbarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+
+          <div className={`bg-black bg-opacity-40 border-l border-t border-b border-yellow-400 border-opacity-70 rounded-l-lg p-2 backdrop-blur-sm transition-transform duration-300 ${toolbarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
             <div className="flex flex-col gap-2 items-center">
               <button
                 onClick={() => setSelectedTool(TERRAIN_TYPES.WALL)}
