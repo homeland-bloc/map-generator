@@ -2537,6 +2537,131 @@ const MapGenerator = () => {
       }
     }
 
+    // ===== PHASE 5.25: WATER-WALL INTEGRATION =====
+    // Water structures should be integrated with walls for tactical interest
+    // 60-70% of water structures get walls at edges/corners
+    const integrateWaterWithWalls = (tiles) => {
+      console.log('\n--- Water-Wall Integration ---');
+      let wallsAdded = 0;
+
+      // Find all water structures
+      const waterStructures = identifyAllStructures(tiles, TERRAIN_TYPES.WATER);
+      console.log(`  Found ${waterStructures.length} water structures`);
+
+      for (const waterStruct of waterStructures) {
+        // 60-70% chance to add wall integration
+        if (Math.random() > 0.65) {
+          console.log(`  Skipping water structure (random chance)`);
+          continue;
+        }
+
+        // Get structure bounds
+        const bounds = getStructureBounds(waterStruct);
+        const structureSize = waterStruct.length;
+
+        // Find edge tiles (water tiles with at least one non-water orthogonal neighbor)
+        const edgeTiles = [];
+        const cornerTiles = [];
+
+        for (const [row, col] of waterStruct) {
+          const neighbors = [
+            [row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]
+          ];
+
+          const nonWaterNeighbors = neighbors.filter(([r, c]) => {
+            if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) return true;
+            return tiles[r][c] !== TERRAIN_TYPES.WATER;
+          });
+
+          if (nonWaterNeighbors.length > 0) {
+            // Check if it's a corner (2+ non-water orthogonal neighbors)
+            if (nonWaterNeighbors.length >= 2) {
+              cornerTiles.push([row, col]);
+            } else {
+              edgeTiles.push([row, col]);
+            }
+          }
+        }
+
+        // Determine how many tiles to convert (1-4 based on structure size)
+        let tilesToConvert = 1;
+        if (structureSize >= 12) tilesToConvert = Math.floor(Math.random() * 3) + 2; // 2-4
+        else if (structureSize >= 8) tilesToConvert = Math.floor(Math.random() * 2) + 1; // 1-2
+
+        console.log(`  Water structure at (${bounds.minRow},${bounds.minCol}): ${structureSize} tiles, converting ${tilesToConvert} to walls`);
+
+        // Prefer corners, then edges
+        const candidateTiles = [...cornerTiles, ...edgeTiles];
+
+        // Shuffle candidates for variety
+        for (let i = candidateTiles.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [candidateTiles[i], candidateTiles[j]] = [candidateTiles[j], candidateTiles[i]];
+        }
+
+        // Convert tiles (prefer corners first)
+        let converted = 0;
+        const convertedPositions = new Set();
+
+        // First pass: try corners
+        for (const [row, col] of cornerTiles) {
+          if (converted >= tilesToConvert) break;
+
+          // Check that converting this won't create an island (wall surrounded by water)
+          // A wall is valid if it has at least one non-water neighbor (including edges)
+          const neighbors = [
+            [row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]
+          ];
+
+          const hasNonWaterNeighbor = neighbors.some(([r, c]) => {
+            if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) return true; // Edge is valid
+            const neighbor = tiles[r][c];
+            return neighbor !== TERRAIN_TYPES.WATER || convertedPositions.has(`${r},${c}`);
+          });
+
+          if (hasNonWaterNeighbor) {
+            tiles[row][col] = TERRAIN_TYPES.WALL;
+            convertedPositions.add(`${row},${col}`);
+            converted++;
+            wallsAdded++;
+          }
+        }
+
+        // Second pass: try edges if we need more
+        for (const [row, col] of edgeTiles) {
+          if (converted >= tilesToConvert) break;
+          if (convertedPositions.has(`${row},${col}`)) continue;
+
+          const neighbors = [
+            [row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]
+          ];
+
+          const hasNonWaterNeighbor = neighbors.some(([r, c]) => {
+            if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) return true;
+            const neighbor = tiles[r][c];
+            return neighbor !== TERRAIN_TYPES.WATER || convertedPositions.has(`${r},${c}`);
+          });
+
+          if (hasNonWaterNeighbor) {
+            tiles[row][col] = TERRAIN_TYPES.WALL;
+            convertedPositions.add(`${row},${col}`);
+            converted++;
+            wallsAdded++;
+          }
+        }
+
+        if (converted > 0) {
+          console.log(`    Converted ${converted} water tiles to walls`);
+        }
+      }
+
+      console.log(`  Total walls added to water structures: ${wallsAdded}`);
+      return wallsAdded;
+    };
+
+    // Run water-wall integration
+    const waterWallsAdded = integrateWaterWithWalls(placedTiles);
+
     // ===== PHASE 5.5: THICKNESS CHECK - Detect and reduce 4x4 solid areas =====
     // Structures that have a 4x4 solid area inside are way too thick
     // Exception: Showdown outskirts bushes can be thick (edge cover)
