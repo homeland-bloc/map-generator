@@ -3783,7 +3783,7 @@ const MapGenerator = () => {
           <div className={`bg-black bg-opacity-40 border-r border-t border-b border-yellow-400 border-opacity-70 rounded-r-lg p-2 backdrop-blur-sm transition-transform duration-300 ${leftSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
             <div className="flex flex-col gap-4 w-60">
               {/* Map Size */}
-              <div className="bg-black bg-opacity-40 border border-cyan-400 border-opacity-50 rounded-lg p-4 backdrop-blur-sm">
+              <div className="bg-black bg-opacity-40 border border-yellow-400 border-opacity-50 rounded-lg p-4 backdrop-blur-sm">
                 <label className="text-white font-semibold text-sm mb-2 block">Map Size</label>
                 <select
                   value={mapSize}
@@ -3803,7 +3803,7 @@ const MapGenerator = () => {
                       }
                     }
                   }}
-                  className="w-full bg-gray-800 text-white border border-cyan-400 border-opacity-30 rounded px-3 py-2 focus:outline-none focus:border-cyan-400"
+                  className="w-full bg-gray-800 text-white border border-yellow-400 border-opacity-30 rounded px-3 py-2 focus:outline-none focus:border-yellow-400"
                 >
                   {Object.entries(MAP_SIZES).map(([key, value]) => (
                     <option key={key} value={key}>{value.name}</option>
