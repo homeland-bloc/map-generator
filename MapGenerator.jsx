@@ -412,7 +412,6 @@ const MapGenerator = () => {
       L_wide4: { pattern: [[1,1,1],[0,1,1],[0,1,1]], weight: 1.5 },
 
       // Larger bush clusters
-      T_bush: { pattern: [[0,1,1,0],[1,1,1,1],[0,1,1,0]], weight: 1 },
       rect_2x5: { pattern: [[1,1],[1,1],[1,1],[1,1],[1,1]], weight: 1 },
       rect_3x4: { pattern: [[1,1,1],[1,1,1],[1,1,1],[1,1,1]], weight: 1 },
 
