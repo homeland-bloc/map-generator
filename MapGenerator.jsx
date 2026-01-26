@@ -293,10 +293,6 @@ const MapGenerator = () => {
       // Plus-shapes (very reduced weight - compact 3x3 patterns)
       plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 0.1 },
 
-      // U-shapes (reduced weight - can create dead-ends)
-      U_med1: { pattern: [[1,0,1],[1,1,1]], weight: 0.5 },
-      U_med2: { pattern: [[1,1],[1,0],[1,1]], weight: 0.5 },
-
       // Large (30% probability total) - Increased from 20%
       bar_v4: { pattern: [[1],[1],[1],[1]], weight: 3 },
       bar_h4: { pattern: [[1,1,1,1]], weight: 3 },
@@ -313,10 +309,7 @@ const MapGenerator = () => {
       L_big3: { pattern: [[1,0,0],[1,0,0],[1,1,1]], weight: 2 },
       L_big4: { pattern: [[0,0,1],[0,0,1],[1,1,1]], weight: 2 },
 
-      // Large complex shapes (reduced weight - internal pockets create dead-ends)
-      box_hollow: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 0.3 },
-      C_shape1: { pattern: [[1,1,1],[1,0,0],[1,1,1]], weight: 0.3 },
-      C_shape2: { pattern: [[1,1,1],[0,0,1],[1,1,1]], weight: 0.3 },
+      // T_large kept with low weight (no internal pocket, just T-shape)
       T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 0.5 },
 
       // Showdown-specific large templates - Long thin walls for map-defining patterns
@@ -353,23 +346,6 @@ const MapGenerator = () => {
         [1,1,1,1,1,1],
         [1,1,1,1,1,1]
       ], weight: 1.2 },
-      // U-shapes (very low weight - creates dead-ends)
-      showdown_U_large: { pattern: [
-        [1,1,0,0,0,0,1,1],
-        [1,1,0,0,0,0,1,1],
-        [1,1,0,0,0,0,1,1],
-        [1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1]
-      ], weight: 0.2 },
-      // C-shapes (very low weight - creates dead-ends)
-      showdown_C_large: { pattern: [
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1],
-        [1,1,0,0,0,0],
-        [1,1,0,0,0,0],
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1]
-      ], weight: 0.2 },
       // Diagonal-ish stepped walls
       showdown_stepped_1: { pattern: [
         [1,1,0,0,0,0],
@@ -1658,6 +1634,57 @@ const MapGenerator = () => {
             }
           }
 
+          // Special handling for corner-touch OTGs - remove entire small structure to maintain symmetry
+          if (otg.type === '2x2-corner-touch') {
+            // Find the diagonal walls causing this OTG
+            const diagonalPositions = [
+              [otg.row - 1, otg.col - 1], [otg.row - 1, otg.col + 1],
+              [otg.row + 1, otg.col - 1], [otg.row + 1, otg.col + 1]
+            ];
+
+            // Find all diagonal wall structures
+            const diagonalStructures = [];
+            for (const [dRow, dCol] of diagonalPositions) {
+              if (dRow >= 0 && dRow < CANVAS_HEIGHT && dCol >= 0 && dCol < CANVAS_WIDTH) {
+                const tile = tiles[dRow][dCol];
+                if (tile === TERRAIN_TYPES.WALL || tile === TERRAIN_TYPES.WATER) {
+                  const structureSize = floodFillSize(tiles, dRow, dCol, tile);
+                  diagonalStructures.push({ row: dRow, col: dCol, size: structureSize, type: tile });
+                }
+              }
+            }
+
+            if (diagonalStructures.length >= 2) {
+              // Find the smallest structure and remove it entirely
+              diagonalStructures.sort((a, b) => a.size - b.size);
+              const smallest = diagonalStructures[0];
+
+              // Remove entire structure using flood fill
+              const visited = new Set();
+              const queue = [[smallest.row, smallest.col]];
+              let removedCount = 0;
+
+              while (queue.length > 0) {
+                const [r, c] = queue.shift();
+                const key = `${r},${c}`;
+                if (visited.has(key)) continue;
+                if (r < 0 || r >= CANVAS_HEIGHT || c < 0 || c >= CANVAS_WIDTH) continue;
+                if (tiles[r][c] !== smallest.type) continue;
+
+                visited.add(key);
+                tiles[r][c] = null;
+                removedCount++;
+
+                queue.push([r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]);
+              }
+
+              iterationFixes++;
+              totalOTGsFixed++;
+              console.log(`    ✓ Removed entire ${removedCount}-tile structure at (${smallest.row},${smallest.col}) for corner-touch OTG`);
+              continue;
+            }
+          }
+
           // Find adjacent filled tiles to remove (including diagonals for all OTGs)
           const neighbors = [
             {pos: [otg.row-1, otg.col], exists: otg.row > 0},
@@ -2537,102 +2564,97 @@ const MapGenerator = () => {
       }
     }
 
-    // ===== PHASE 5.1: TRIM BUSH PROTRUSIONS =====
-    // Remove 1-tile-wide bush tails that extend more than 2 tiles
+    // ===== PHASE 5.1: TRIM BUSH PROTRUSIONS & REMOVE SNAKE-LIKE BUSHES =====
+    // Remove 1-tile-wide bush sections and snake-like bushes entirely
     const trimBushProtrusions = (tiles) => {
-      console.log('\n--- Trimming Bush Protrusions ---');
+      console.log('\n--- Trimming Bush Protrusions & Snake-like Bushes ---');
       let tilesRemoved = 0;
+      let structuresRemoved = 0;
+
+      // Helper to check if a tile is 1-tile-wide within a bush
+      const isOneTileWide = (row, col, bushSet) => {
+        const N = bushSet.has(`${row - 1},${col}`);
+        const S = bushSet.has(`${row + 1},${col}`);
+        const E = bushSet.has(`${row},${col + 1}`);
+        const W = bushSet.has(`${row},${col - 1}`);
+        const neighborCount = [N, S, E, W].filter(Boolean).length;
+
+        // 1-tile-wide: only 1 neighbor (tip) or 2 opposite neighbors (middle of thin strip)
+        return neighborCount === 1 ||
+          (neighborCount === 2 && ((N && S && !E && !W) || (E && W && !N && !S)));
+      };
 
       // Find all bush structures
-      const bushStructures = identifyAllStructures(tiles, TERRAIN_TYPES.GRASS);
+      let bushStructures = identifyAllStructures(tiles, TERRAIN_TYPES.GRASS);
 
       for (const bushStruct of bushStructures) {
-        // Create a set for quick lookup
         const bushSet = new Set(bushStruct.map(([r, c]) => `${r},${c}`));
+        const totalTiles = bushStruct.length;
 
-        // Find tiles that are part of 1-tile-wide sections
-        // A tile is 1-tile-wide if it has exactly 2 bush neighbors in opposite directions
-        // or only 1 bush neighbor (end of a protrusion)
-        const oneTileWideTiles = [];
-
+        // Count how many tiles are 1-tile-wide
+        let oneTileWideCount = 0;
         for (const [row, col] of bushStruct) {
-          const N = bushSet.has(`${row - 1},${col}`);
-          const S = bushSet.has(`${row + 1},${col}`);
-          const E = bushSet.has(`${row},${col + 1}`);
-          const W = bushSet.has(`${row},${col - 1}`);
-
-          const bushNeighborCount = [N, S, E, W].filter(Boolean).length;
-
-          // 1-tile-wide: only 1 neighbor (tip) or 2 opposite neighbors (middle of thin strip)
-          const isOneTileWide = bushNeighborCount === 1 ||
-            (bushNeighborCount === 2 && ((N && S && !E && !W) || (E && W && !N && !S)));
-
-          if (isOneTileWide) {
-            oneTileWideTiles.push([row, col]);
+          if (isOneTileWide(row, col, bushSet)) {
+            oneTileWideCount++;
           }
         }
 
-        if (oneTileWideTiles.length === 0) continue;
+        const snakeRatio = oneTileWideCount / totalTiles;
 
-        // Find connected chains of 1-tile-wide tiles
+        // If more than 40% of bush is 1-tile-wide, it's a snake - remove entirely
+        if (snakeRatio > 0.4 && totalTiles > 4) {
+          console.log(`  Removing snake-like bush: ${totalTiles} tiles, ${(snakeRatio * 100).toFixed(0)}% thin`);
+          for (const [row, col] of bushStruct) {
+            tiles[row][col] = null;
+            tilesRemoved++;
+          }
+          structuresRemoved++;
+          continue;
+        }
+
+        // Otherwise, remove ALL 1-tile-wide chains longer than 2 tiles
         const processedTiles = new Set();
 
-        for (const [startRow, startCol] of oneTileWideTiles) {
-          const startKey = `${startRow},${startCol}`;
-          if (processedTiles.has(startKey)) continue;
+        for (const [row, col] of bushStruct) {
+          const key = `${row},${col}`;
+          if (processedTiles.has(key)) continue;
+          if (!isOneTileWide(row, col, bushSet)) continue;
 
-          // BFS to find the chain of 1-tile-wide tiles
+          // BFS to find connected 1-tile-wide chain
           const chain = [];
-          const queue = [[startRow, startCol]];
+          const queue = [[row, col]];
           const visited = new Set();
 
           while (queue.length > 0) {
-            const [row, col] = queue.shift();
-            const key = `${row},${col}`;
+            const [r, c] = queue.shift();
+            const k = `${r},${c}`;
 
-            if (visited.has(key)) continue;
-            visited.add(key);
+            if (visited.has(k)) continue;
+            if (!bushSet.has(k)) continue;
+            visited.add(k);
 
-            // Check if this tile is 1-tile-wide
-            const N = bushSet.has(`${row - 1},${col}`);
-            const S = bushSet.has(`${row + 1},${col}`);
-            const E = bushSet.has(`${row},${col + 1}`);
-            const W = bushSet.has(`${row},${col - 1}`);
-            const bushNeighborCount = [N, S, E, W].filter(Boolean).length;
-            const isOneTileWide = bushNeighborCount === 1 ||
-              (bushNeighborCount === 2 && ((N && S && !E && !W) || (E && W && !N && !S)));
+            if (isOneTileWide(r, c, bushSet)) {
+              chain.push([r, c]);
+              processedTiles.add(k);
 
-            if (!isOneTileWide) continue;
-
-            chain.push([row, col]);
-            processedTiles.add(key);
-
-            // Add neighbors to queue
-            if (N) queue.push([row - 1, col]);
-            if (S) queue.push([row + 1, col]);
-            if (E) queue.push([row, col + 1]);
-            if (W) queue.push([row, col - 1]);
+              // Add orthogonal neighbors
+              queue.push([r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]);
+            }
           }
 
-          // If chain is longer than 2 tiles, remove tiles beyond the first 2
+          // Remove entire chain if longer than 2 tiles (no snake tails allowed)
           if (chain.length > 2) {
-            console.log(`  Found ${chain.length}-tile protrusion, trimming to 2 tiles`);
-
-            // Remove all but the first 2 tiles (keep the connection to main body)
-            // Sort chain by distance from a 2-tile-wide section
-            // For simplicity, just remove tiles from the end of the chain
-            const tilesToRemove = chain.slice(2);
-
-            for (const [row, col] of tilesToRemove) {
-              tiles[row][col] = null;
-              bushSet.delete(`${row},${col}`);
+            console.log(`  Removing ${chain.length}-tile snake tail entirely`);
+            for (const [tr, tc] of chain) {
+              tiles[tr][tc] = null;
+              bushSet.delete(`${tr},${tc}`);
               tilesRemoved++;
             }
           }
         }
       }
 
-      console.log(`  Removed ${tilesRemoved} tiles from excessive bush protrusions`);
+      console.log(`  Removed ${tilesRemoved} tiles, ${structuresRemoved} entire snake bushes`);
       return tilesRemoved;
     };
 
