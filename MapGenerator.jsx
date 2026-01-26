@@ -293,10 +293,6 @@ const MapGenerator = () => {
       // Plus-shapes (very reduced weight - compact 3x3 patterns)
       plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 0.1 },
 
-      // U-shapes (reduced weight - can create dead-ends)
-      U_med1: { pattern: [[1,0,1],[1,1,1]], weight: 0.5 },
-      U_med2: { pattern: [[1,1],[1,0],[1,1]], weight: 0.5 },
-
       // Large (30% probability total) - Increased from 20%
       bar_v4: { pattern: [[1],[1],[1],[1]], weight: 3 },
       bar_h4: { pattern: [[1,1,1,1]], weight: 3 },
@@ -313,10 +309,7 @@ const MapGenerator = () => {
       L_big3: { pattern: [[1,0,0],[1,0,0],[1,1,1]], weight: 2 },
       L_big4: { pattern: [[0,0,1],[0,0,1],[1,1,1]], weight: 2 },
 
-      // Large complex shapes (reduced weight - internal pockets create dead-ends)
-      box_hollow: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 0.3 },
-      C_shape1: { pattern: [[1,1,1],[1,0,0],[1,1,1]], weight: 0.3 },
-      C_shape2: { pattern: [[1,1,1],[0,0,1],[1,1,1]], weight: 0.3 },
+      // T_large kept with low weight (no internal pocket, just T-shape)
       T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 0.5 },
 
       // Showdown-specific large templates - Long thin walls for map-defining patterns
@@ -353,23 +346,6 @@ const MapGenerator = () => {
         [1,1,1,1,1,1],
         [1,1,1,1,1,1]
       ], weight: 1.2 },
-      // U-shapes (very low weight - creates dead-ends)
-      showdown_U_large: { pattern: [
-        [1,1,0,0,0,0,1,1],
-        [1,1,0,0,0,0,1,1],
-        [1,1,0,0,0,0,1,1],
-        [1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1]
-      ], weight: 0.2 },
-      // C-shapes (very low weight - creates dead-ends)
-      showdown_C_large: { pattern: [
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1],
-        [1,1,0,0,0,0],
-        [1,1,0,0,0,0],
-        [1,1,1,1,1,1],
-        [1,1,1,1,1,1]
-      ], weight: 0.2 },
       // Diagonal-ish stepped walls
       showdown_stepped_1: { pattern: [
         [1,1,0,0,0,0],
