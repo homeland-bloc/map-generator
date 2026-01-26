@@ -293,9 +293,9 @@ const MapGenerator = () => {
       // Plus-shapes (very reduced weight - compact 3x3 patterns)
       plus_med: { pattern: [[0,1,0],[1,1,1],[0,1,0]], weight: 0.1 },
 
-      // U-shapes
-      U_med1: { pattern: [[1,0,1],[1,1,1]], weight: 3 },
-      U_med2: { pattern: [[1,1],[1,0],[1,1]], weight: 3 },
+      // U-shapes (reduced weight - can create dead-ends)
+      U_med1: { pattern: [[1,0,1],[1,1,1]], weight: 0.5 },
+      U_med2: { pattern: [[1,1],[1,0],[1,1]], weight: 0.5 },
 
       // Large (30% probability total) - Increased from 20%
       bar_v4: { pattern: [[1],[1],[1],[1]], weight: 3 },
@@ -313,10 +313,10 @@ const MapGenerator = () => {
       L_big3: { pattern: [[1,0,0],[1,0,0],[1,1,1]], weight: 2 },
       L_big4: { pattern: [[0,0,1],[0,0,1],[1,1,1]], weight: 2 },
 
-      // Large complex shapes
-      box_hollow: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 2 },
-      C_shape1: { pattern: [[1,1,1],[1,0,0],[1,1,1]], weight: 2 },
-      C_shape2: { pattern: [[1,1,1],[0,0,1],[1,1,1]], weight: 2 },
+      // Large complex shapes (reduced weight - internal pockets create dead-ends)
+      box_hollow: { pattern: [[1,1,1],[1,0,1],[1,1,1]], weight: 0.3 },
+      C_shape1: { pattern: [[1,1,1],[1,0,0],[1,1,1]], weight: 0.3 },
+      C_shape2: { pattern: [[1,1,1],[0,0,1],[1,1,1]], weight: 0.3 },
       T_large: { pattern: [[1,1,1,1,1],[0,0,1,0,0]], weight: 0.5 },
 
       // Showdown-specific large templates - Long thin walls for map-defining patterns
@@ -353,15 +353,15 @@ const MapGenerator = () => {
         [1,1,1,1,1,1],
         [1,1,1,1,1,1]
       ], weight: 1.2 },
-      // U-shapes (for defensive formations)
+      // U-shapes (very low weight - creates dead-ends)
       showdown_U_large: { pattern: [
         [1,1,0,0,0,0,1,1],
         [1,1,0,0,0,0,1,1],
         [1,1,0,0,0,0,1,1],
         [1,1,1,1,1,1,1,1],
         [1,1,1,1,1,1,1,1]
-      ], weight: 0.8 },
-      // C-shapes
+      ], weight: 0.2 },
+      // C-shapes (very low weight - creates dead-ends)
       showdown_C_large: { pattern: [
         [1,1,1,1,1,1],
         [1,1,1,1,1,1],
@@ -369,7 +369,7 @@ const MapGenerator = () => {
         [1,1,0,0,0,0],
         [1,1,1,1,1,1],
         [1,1,1,1,1,1]
-      ], weight: 0.8 },
+      ], weight: 0.2 },
       // Diagonal-ish stepped walls
       showdown_stepped_1: { pattern: [
         [1,1,0,0,0,0],
@@ -2536,6 +2536,108 @@ const MapGenerator = () => {
         mergeNearbyBushes(placedTiles);
       }
     }
+
+    // ===== PHASE 5.1: TRIM BUSH PROTRUSIONS =====
+    // Remove 1-tile-wide bush tails that extend more than 2 tiles
+    const trimBushProtrusions = (tiles) => {
+      console.log('\n--- Trimming Bush Protrusions ---');
+      let tilesRemoved = 0;
+
+      // Find all bush structures
+      const bushStructures = identifyAllStructures(tiles, TERRAIN_TYPES.GRASS);
+
+      for (const bushStruct of bushStructures) {
+        // Create a set for quick lookup
+        const bushSet = new Set(bushStruct.map(([r, c]) => `${r},${c}`));
+
+        // Find tiles that are part of 1-tile-wide sections
+        // A tile is 1-tile-wide if it has exactly 2 bush neighbors in opposite directions
+        // or only 1 bush neighbor (end of a protrusion)
+        const oneTileWideTiles = [];
+
+        for (const [row, col] of bushStruct) {
+          const N = bushSet.has(`${row - 1},${col}`);
+          const S = bushSet.has(`${row + 1},${col}`);
+          const E = bushSet.has(`${row},${col + 1}`);
+          const W = bushSet.has(`${row},${col - 1}`);
+
+          const bushNeighborCount = [N, S, E, W].filter(Boolean).length;
+
+          // 1-tile-wide: only 1 neighbor (tip) or 2 opposite neighbors (middle of thin strip)
+          const isOneTileWide = bushNeighborCount === 1 ||
+            (bushNeighborCount === 2 && ((N && S && !E && !W) || (E && W && !N && !S)));
+
+          if (isOneTileWide) {
+            oneTileWideTiles.push([row, col]);
+          }
+        }
+
+        if (oneTileWideTiles.length === 0) continue;
+
+        // Find connected chains of 1-tile-wide tiles
+        const processedTiles = new Set();
+
+        for (const [startRow, startCol] of oneTileWideTiles) {
+          const startKey = `${startRow},${startCol}`;
+          if (processedTiles.has(startKey)) continue;
+
+          // BFS to find the chain of 1-tile-wide tiles
+          const chain = [];
+          const queue = [[startRow, startCol]];
+          const visited = new Set();
+
+          while (queue.length > 0) {
+            const [row, col] = queue.shift();
+            const key = `${row},${col}`;
+
+            if (visited.has(key)) continue;
+            visited.add(key);
+
+            // Check if this tile is 1-tile-wide
+            const N = bushSet.has(`${row - 1},${col}`);
+            const S = bushSet.has(`${row + 1},${col}`);
+            const E = bushSet.has(`${row},${col + 1}`);
+            const W = bushSet.has(`${row},${col - 1}`);
+            const bushNeighborCount = [N, S, E, W].filter(Boolean).length;
+            const isOneTileWide = bushNeighborCount === 1 ||
+              (bushNeighborCount === 2 && ((N && S && !E && !W) || (E && W && !N && !S)));
+
+            if (!isOneTileWide) continue;
+
+            chain.push([row, col]);
+            processedTiles.add(key);
+
+            // Add neighbors to queue
+            if (N) queue.push([row - 1, col]);
+            if (S) queue.push([row + 1, col]);
+            if (E) queue.push([row, col + 1]);
+            if (W) queue.push([row, col - 1]);
+          }
+
+          // If chain is longer than 2 tiles, remove tiles beyond the first 2
+          if (chain.length > 2) {
+            console.log(`  Found ${chain.length}-tile protrusion, trimming to 2 tiles`);
+
+            // Remove all but the first 2 tiles (keep the connection to main body)
+            // Sort chain by distance from a 2-tile-wide section
+            // For simplicity, just remove tiles from the end of the chain
+            const tilesToRemove = chain.slice(2);
+
+            for (const [row, col] of tilesToRemove) {
+              tiles[row][col] = null;
+              bushSet.delete(`${row},${col}`);
+              tilesRemoved++;
+            }
+          }
+        }
+      }
+
+      console.log(`  Removed ${tilesRemoved} tiles from excessive bush protrusions`);
+      return tilesRemoved;
+    };
+
+    // Run bush protrusion trimming
+    const bushProtrusionsTrimmed = trimBushProtrusions(placedTiles);
 
     // ===== PHASE 5.25: WATER-WALL INTEGRATION =====
     // Water structures should be integrated with walls for tactical interest
