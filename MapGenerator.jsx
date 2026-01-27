@@ -815,10 +815,39 @@ const MapGenerator = () => {
         return false;
       }
 
+      const templateSize = template.flat().filter(t => t === 1).length;
+
+      // Check 1b: EDGE BUFFER for large walls - discourage long walls from touching map edges
+      // Large walls attached to edges create huge dead-ends
+      if (terrainType === TERRAIN_TYPES.WALL && templateSize >= 6) {
+        const EDGE_BUFFER = isShowdown ? 3 : 2;
+        let touchesEdge = false;
+
+        for (let i = 0; i < templateHeight; i++) {
+          for (let j = 0; j < templateWidth; j++) {
+            if (template[i][j] === 1) {
+              const tileRow = row + i;
+              const tileCol = col + j;
+              // Check if tile is within edge buffer
+              if (tileRow < EDGE_BUFFER || tileRow >= CANVAS_HEIGHT - EDGE_BUFFER ||
+                  tileCol < EDGE_BUFFER || tileCol >= CANVAS_WIDTH - EDGE_BUFFER) {
+                touchesEdge = true;
+                break;
+              }
+            }
+          }
+          if (touchesEdge) break;
+        }
+
+        // 80% chance to reject large walls touching edges
+        if (touchesEdge && Math.random() < 0.8) {
+          return false;
+        }
+      }
+
       // Check 2: Reject small water templates (1x1, 2x2, and anything under 6 tiles)
       // Water structures should be substantial - minimum 6 tiles
       if (terrainType === TERRAIN_TYPES.WATER) {
-        const templateSize = template.flat().filter(t => t === 1).length;
         if (templateSize < 6) {
           return false; // Small water not allowed - minimum 6 tiles required
         }
@@ -877,25 +906,45 @@ const MapGenerator = () => {
         // Calculate combined structure dimensions using testGrid
         const dims = getStructureDimensions(testGrid, connectedPos[0], connectedPos[1], terrainType);
 
-        // RELAXED size limits - scale up for Showdown maps
+        // Size limits differ significantly between 3v3 and Showdown
         let maxTotalSize, maxLength, maxThickness, minThickness;
-        const sizeMultiplier = isShowdown ? 2.5 : 1.3; // More lenient for Showdown
 
-        if (terrainType === TERRAIN_TYPES.WALL) {
-          maxTotalSize = Math.floor(30 * sizeMultiplier); // Showdown: 75, Standard: 39
-          maxLength = Math.floor(16 * sizeMultiplier); // Showdown: 40, Standard: 20 (longer structures)
-          maxThickness = Math.floor(4 * sizeMultiplier); // Showdown: 10, Standard: 5
-          minThickness = 1;
-        } else if (terrainType === TERRAIN_TYPES.GRASS) {
-          maxTotalSize = Math.floor(35 * sizeMultiplier); // Showdown: 87, Standard: 45
-          maxLength = Math.floor(18 * sizeMultiplier); // Showdown: 45, Standard: 23
-          maxThickness = Math.floor(5 * sizeMultiplier); // Showdown: 12, Standard: 6
-          minThickness = 1;
-        } else { // WATER
-          maxTotalSize = Math.floor(40 * sizeMultiplier); // Showdown: 100, Standard: 52
-          maxLength = Math.floor(20 * sizeMultiplier); // Showdown: 50, Standard: 26 (very long water)
-          maxThickness = Math.floor(6 * sizeMultiplier); // Showdown: 15, Standard: 7
-          minThickness = 2;  // Min 2 tiles thick - no single-tile protrusions
+        if (isShowdown) {
+          // Showdown: larger structures allowed but not excessive
+          if (terrainType === TERRAIN_TYPES.WALL) {
+            maxTotalSize = 50; // Reasonable max for walls
+            maxLength = 25;    // Long walls OK but not map-spanning
+            maxThickness = 6;  // Not too thick
+            minThickness = 1;
+          } else if (terrainType === TERRAIN_TYPES.GRASS) {
+            maxTotalSize = 60; // Bushes can be a bit larger
+            maxLength = 30;
+            maxThickness = 8;
+            minThickness = 1;
+          } else { // WATER
+            maxTotalSize = 45;
+            maxLength = 20;
+            maxThickness = 8;
+            minThickness = 2;
+          }
+        } else {
+          // 3v3: Much smaller structures for balanced gameplay
+          if (terrainType === TERRAIN_TYPES.WALL) {
+            maxTotalSize = 16;  // Small walls only (was 39)
+            maxLength = 8;      // Short walls (was 20)
+            maxThickness = 3;   // Thin walls (was 5)
+            minThickness = 1;
+          } else if (terrainType === TERRAIN_TYPES.GRASS) {
+            maxTotalSize = 30;  // Bushes can be bigger
+            maxLength = 12;
+            maxThickness = 5;
+            minThickness = 1;
+          } else { // WATER
+            maxTotalSize = 18;
+            maxLength = 8;
+            maxThickness = 4;
+            minThickness = 2;
+          }
         }
 
         if (dims.totalSize > maxTotalSize || dims.maxLength > maxLength ||
@@ -903,8 +952,8 @@ const MapGenerator = () => {
           return false; // Would exceed size limits or be too thin
         }
 
-        // WATER-WALL ATTACHMENT VALIDATION (during placement, not post-processing)
-        // Check if water structure would have good wall attachment ratio
+        // WATER-WALL ATTACHMENT VALIDATION
+        // Water should only attach to SMALL walls, not large ones
         if (terrainType === TERRAIN_TYPES.WATER) {
           const waterTiles = [];
           for (let i = 0; i < templateHeight; i++) {
@@ -915,7 +964,28 @@ const MapGenerator = () => {
             }
           }
 
-          // Count wall tiles touching this water in testGrid
+          // Find wall tiles touching this water and check their structure sizes
+          const checkedWallStructures = new Set();
+          for (const [wr, wc] of waterTiles) {
+            const neighbors = [[wr-1,wc], [wr+1,wc], [wr,wc-1], [wr,wc+1]];
+            for (const [nr, nc] of neighbors) {
+              if (isValid(nr, nc) && tiles[nr][nc] === TERRAIN_TYPES.WALL) {
+                const wallKey = `${nr},${nc}`;
+                if (!checkedWallStructures.has(wallKey)) {
+                  // Check size of this wall structure
+                  const wallSize = floodFillSize(tiles, nr, nc, TERRAIN_TYPES.WALL);
+                  const maxWallSizeForWaterAttachment = isShowdown ? 12 : 8;
+
+                  if (wallSize > maxWallSizeForWaterAttachment) {
+                    return false; // Water should not attach to large walls
+                  }
+                  checkedWallStructures.add(wallKey);
+                }
+              }
+            }
+          }
+
+          // Also check total wall tiles touching (for shooting angles)
           const touchingWalls = new Set();
           for (const [wr, wc] of waterTiles) {
             const neighbors = [[wr-1,wc], [wr+1,wc], [wr,wc-1], [wr,wc+1]];
@@ -930,7 +1000,6 @@ const MapGenerator = () => {
           const wallCount = touchingWalls.size;
 
           // Reject if too many walls touching (>50% of water tile count)
-          // This prevents water with blocked shooting angles
           if (wallCount > waterCount / 2) {
             return false; // Too many walls blocking water shooting angles
           }
@@ -1324,7 +1393,7 @@ const MapGenerator = () => {
       const region = getRegion(row, col);
       const regionHistory = regionTemplateHistory[region];
 
-      // Calculate adjusted weights based on region history and Showdown bonuses
+      // Calculate adjusted weights based on region history and map type
       const adjustedWeights = {};
 
       for (const [name, template] of Object.entries(templates)) {
@@ -1335,39 +1404,42 @@ const MapGenerator = () => {
           weight *= RECENT_TEMPLATE_WEIGHT_PENALTY;
         }
 
-        // For Showdown: favor long thin structures, penalize tiny structures
+        const pattern = template.pattern;
+        const height = pattern.length;
+        const width = pattern[0].length;
+        const maxDim = Math.max(height, width);
+        const minDim = Math.min(height, width);
+        const templateSize = countTilesInTemplate(pattern);
+
         if (isShowdown) {
-          const pattern = template.pattern;
-          const height = pattern.length;
-          const width = pattern[0].length;
-          const maxDim = Math.max(height, width);
-          const minDim = Math.min(height, width);
-          const templateSize = countTilesInTemplate(pattern);
-
-          // HEAVILY penalize 1x1 single tiles in Showdown (too much repetition)
+          // Showdown: moderate boost for medium-large, slight boost for large
+          // Penalize tiny structures but don't over-boost large ones
           if (templateSize === 1) {
-            weight *= 0.1; // 90% reduction for single tiles
-          }
-          // Penalize very small templates (2-3 tiles) in Showdown
-          else if (templateSize <= 3) {
-            weight *= 0.3; // 70% reduction for tiny templates
-          }
-          // Boost large templates significantly for Showdown
-          else if (templateSize >= 12) {
-            weight *= 3.0; // 3x boost for large templates
-          }
-          else if (templateSize >= 8) {
-            weight *= 2.0; // 2x boost for medium-large templates
+            weight *= 0.15; // 85% reduction for single tiles
+          } else if (templateSize <= 3) {
+            weight *= 0.4; // 60% reduction for tiny templates
+          } else if (templateSize >= 16) {
+            weight *= 1.5; // Only 1.5x for very large (was 3x - too much)
+          } else if (templateSize >= 10) {
+            weight *= 1.3; // Slight boost for large
+          } else if (templateSize >= 6) {
+            weight *= 1.2; // Small boost for medium
           }
 
-          // Calculate aspect ratio (length / thickness)
+          // Favor long thin structures (aspect ratio bonus)
           const aspectRatio = maxDim / Math.max(1, minDim);
-
-          // Favor structures with high aspect ratio (long and thin)
-          // Ratio 1:1 (square) gets no bonus, ratio 4:1 gets 2.5x, ratio 6:1 gets 3x
-          const aspectBonus = Math.min(3.0, 1 + (aspectRatio - 1) * 0.5);
-
+          const aspectBonus = Math.min(2.0, 1 + (aspectRatio - 1) * 0.3);
           weight *= aspectBonus;
+        } else {
+          // 3v3: Favor smaller structures, penalize large ones
+          if (templateSize >= 12) {
+            weight *= 0.3; // 70% reduction for large templates in 3v3
+          } else if (templateSize >= 8) {
+            weight *= 0.6; // 40% reduction for medium-large
+          } else if (templateSize <= 2) {
+            weight *= 0.8; // Slight reduction for very small
+          }
+          // Medium structures (3-7 tiles) keep their base weight
         }
 
         adjustedWeights[name] = weight;
@@ -2564,6 +2636,97 @@ const MapGenerator = () => {
       }
     }
 
+    // ===== PHASE 5.05: SHOWDOWN OUTSKIRTS BUSHES =====
+    // Place large bush formations along map edges in Showdown for tactical cover
+    if (isShowdown) {
+      console.log('\n--- Placing Showdown Outskirts Bushes ---');
+      let outskirtsBushesPlaced = 0;
+
+      // Choose 1-3 edges to have thick bush cover (not all edges - that's boring)
+      const edges = ['top', 'bottom', 'left', 'right'];
+      const numEdgesToCover = 1 + Math.floor(Math.random() * 2); // 1-2 edges
+      const shuffledEdges = edges.sort(() => Math.random() - 0.5);
+      const selectedEdges = shuffledEdges.slice(0, numEdgesToCover);
+
+      console.log(`  Selected edges for bush cover: ${selectedEdges.join(', ')}`);
+
+      for (const edge of selectedEdges) {
+        // Determine edge bounds
+        let startRow, endRow, startCol, endCol;
+        const EDGE_DEPTH = 6; // How deep the bush band goes
+        const COVERAGE_RATIO = 0.4 + Math.random() * 0.3; // 40-70% of edge length
+
+        if (edge === 'top') {
+          startRow = 0; endRow = EDGE_DEPTH;
+          startCol = 0; endCol = CANVAS_WIDTH;
+        } else if (edge === 'bottom') {
+          startRow = CANVAS_HEIGHT - EDGE_DEPTH; endRow = CANVAS_HEIGHT;
+          startCol = 0; endCol = CANVAS_WIDTH;
+        } else if (edge === 'left') {
+          startRow = 0; endRow = CANVAS_HEIGHT;
+          startCol = 0; endCol = EDGE_DEPTH;
+        } else { // right
+          startRow = 0; endRow = CANVAS_HEIGHT;
+          startCol = CANVAS_WIDTH - EDGE_DEPTH; endCol = CANVAS_WIDTH;
+        }
+
+        // Calculate how much of the edge to cover
+        const edgeLength = edge === 'top' || edge === 'bottom' ?
+          CANVAS_WIDTH : CANVAS_HEIGHT;
+        const coverageLength = Math.floor(edgeLength * COVERAGE_RATIO);
+        const coverageStart = Math.floor(Math.random() * (edgeLength - coverageLength));
+
+        // Place bushes along this edge section
+        for (let attempts = 0; attempts < 50; attempts++) {
+          let row, col;
+
+          if (edge === 'top' || edge === 'bottom') {
+            row = startRow + Math.floor(Math.random() * (endRow - startRow));
+            col = coverageStart + Math.floor(Math.random() * coverageLength);
+          } else {
+            row = coverageStart + Math.floor(Math.random() * coverageLength);
+            col = startCol + Math.floor(Math.random() * (endCol - startCol));
+          }
+
+          // Try to place a 2x3 or 3x2 bush block
+          const templates = [
+            [[1,1],[1,1],[1,1]], // 2x3
+            [[1,1,1],[1,1,1]],   // 3x2
+            [[1,1],[1,1]],       // 2x2
+          ];
+          const template = templates[Math.floor(Math.random() * templates.length)];
+          const tHeight = template.length;
+          const tWidth = template[0].length;
+
+          // Check bounds and overlap
+          if (row + tHeight > CANVAS_HEIGHT || col + tWidth > CANVAS_WIDTH) continue;
+
+          let canPlace = true;
+          for (let i = 0; i < tHeight && canPlace; i++) {
+            for (let j = 0; j < tWidth && canPlace; j++) {
+              if (template[i][j] === 1 && placedTiles[row + i][col + j] !== null) {
+                canPlace = false;
+              }
+            }
+          }
+
+          if (canPlace) {
+            // Place the bush
+            for (let i = 0; i < tHeight; i++) {
+              for (let j = 0; j < tWidth; j++) {
+                if (template[i][j] === 1) {
+                  placedTiles[row + i][col + j] = TERRAIN_TYPES.GRASS;
+                  outskirtsBushesPlaced++;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      console.log(`  Placed ${outskirtsBushesPlaced} outskirts bush tiles`);
+    }
+
     // ===== PHASE 5.1: TRIM BUSH PROTRUSIONS & REMOVE SNAKE-LIKE BUSHES =====
     // Remove 1-tile-wide bush sections and snake-like bushes entirely
     const trimBushProtrusions = (tiles) => {
@@ -2584,33 +2747,53 @@ const MapGenerator = () => {
           (neighborCount === 2 && ((N && S && !E && !W) || (E && W && !N && !S)));
       };
 
-      // Find all bush structures
-      let bushStructures = identifyAllStructures(tiles, TERRAIN_TYPES.GRASS);
-
-      for (const bushStruct of bushStructures) {
-        const bushSet = new Set(bushStruct.map(([r, c]) => `${r},${c}`));
-        const totalTiles = bushStruct.length;
-
-        // Count how many tiles are 1-tile-wide
-        let oneTileWideCount = 0;
-        for (const [row, col] of bushStruct) {
-          if (isOneTileWide(row, col, bushSet)) {
-            oneTileWideCount++;
-          }
+      // Helper to check if bush has a solid 2x2 core
+      const hasSolidCore = (bushSet) => {
+        for (const key of bushSet) {
+          const [row, col] = key.split(',').map(Number);
+          // Check if this tile is part of a 2x2 solid block
+          const hasRight = bushSet.has(`${row},${col + 1}`);
+          const hasDown = bushSet.has(`${row + 1},${col}`);
+          const hasDiag = bushSet.has(`${row + 1},${col + 1}`);
+          if (hasRight && hasDown && hasDiag) return true;
         }
+        return false;
+      };
 
-        const snakeRatio = oneTileWideCount / totalTiles;
+      // Run multiple passes for thorough cleanup
+      for (let pass = 0; pass < 3; pass++) {
+        let bushStructures = identifyAllStructures(tiles, TERRAIN_TYPES.GRASS);
 
-        // If more than 40% of bush is 1-tile-wide, it's a snake - remove entirely
-        if (snakeRatio > 0.4 && totalTiles > 4) {
-          console.log(`  Removing snake-like bush: ${totalTiles} tiles, ${(snakeRatio * 100).toFixed(0)}% thin`);
+        for (const bushStruct of bushStructures) {
+          const bushSet = new Set(bushStruct.map(([r, c]) => `${r},${c}`));
+          const totalTiles = bushStruct.length;
+
+          // Skip very small bushes
+          if (totalTiles < 3) continue;
+
+          // Count how many tiles are 1-tile-wide
+          let oneTileWideCount = 0;
           for (const [row, col] of bushStruct) {
-            tiles[row][col] = null;
-            tilesRemoved++;
+            if (isOneTileWide(row, col, bushSet)) {
+              oneTileWideCount++;
+            }
           }
-          structuresRemoved++;
-          continue;
-        }
+
+          const snakeRatio = oneTileWideCount / totalTiles;
+
+          // STRICT: If more than 30% of bush is 1-tile-wide, it's a snake - remove entirely
+          // Also remove if no solid 2x2 core exists (means it's all thin lines)
+          const noSolidCore = totalTiles >= 4 && !hasSolidCore(bushSet);
+
+          if ((snakeRatio > 0.3 && totalTiles > 4) || noSolidCore) {
+            console.log(`  Removing snake-like bush: ${totalTiles} tiles, ${(snakeRatio * 100).toFixed(0)}% thin, core=${!noSolidCore}`);
+            for (const [row, col] of bushStruct) {
+              tiles[row][col] = null;
+              tilesRemoved++;
+            }
+            structuresRemoved++;
+            continue;
+          }
 
         // Otherwise, remove ALL 1-tile-wide chains longer than 2 tiles
         const processedTiles = new Set();
@@ -2652,6 +2835,7 @@ const MapGenerator = () => {
             }
           }
         }
+        } // end pass loop
       }
 
       console.log(`  Removed ${tilesRemoved} tiles, ${structuresRemoved} entire snake bushes`);
