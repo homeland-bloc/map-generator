@@ -935,9 +935,9 @@ const MapGenerator = () => {
             maxThickness = 3;   // Thin walls (was 5)
             minThickness = 1;
           } else if (terrainType === TERRAIN_TYPES.GRASS) {
-            maxTotalSize = 20;  // Small bushes
-            maxLength = 10;
-            maxThickness = 4;
+            maxTotalSize = 30;  // Bushes can be bigger
+            maxLength = 12;
+            maxThickness = 5;
             minThickness = 1;
           } else { // WATER
             maxTotalSize = 18;
